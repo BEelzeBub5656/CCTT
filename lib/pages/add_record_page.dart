@@ -8,7 +8,7 @@ import '../data/database_helper.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 
-/// 新建库存移动记录页面
+/// 新建库存移动记录页面（毛厂出库单版）
 ///
 /// 支持手动录入、相机 OCR 识别发票自动填充、以及从相册选择照片识别。
 class AddRecordPage extends StatefulWidget {
@@ -21,7 +21,12 @@ class AddRecordPage extends StatefulWidget {
 class _AddRecordPageState extends State<AddRecordPage> {
   final _formKey = GlobalKey<FormState>();
   final _partnerController = TextEditingController();
+  final _productNameController = TextEditingController();
+  final _deliveryPersonController = TextEditingController();
   final _quantityController = TextEditingController();
+  final _totalPiecesController = TextEditingController();
+  final _grossWeightController = TextEditingController();
+  final _tareWeightController = TextEditingController();
   final _unitPriceController = TextEditingController();
 
   List<Warehouse> _warehouses = [];
@@ -52,7 +57,12 @@ class _AddRecordPageState extends State<AddRecordPage> {
   @override
   void dispose() {
     _partnerController.dispose();
+    _productNameController.dispose();
+    _deliveryPersonController.dispose();
     _quantityController.dispose();
+    _totalPiecesController.dispose();
+    _grossWeightController.dispose();
+    _tareWeightController.dispose();
     _unitPriceController.dispose();
     super.dispose();
   }
@@ -144,20 +154,32 @@ class _AddRecordPageState extends State<AddRecordPage> {
     setState(() => _isSaving = true);
 
     try {
-      // 安全解析数量（支持表达式）
+      // 安全解析净重（支持表达式）
       final quantityValue = _evaluateExpression(_quantityController.text.trim());
       if (quantityValue == null || quantityValue <= 0) {
-        _showSnackBar('数量无效，请检查输入');
+        _showSnackBar('净重无效，请检查输入');
         setState(() => _isSaving = false);
         return;
       }
 
+      // 单价（元/吨）
       final priceValue = double.tryParse(_unitPriceController.text.trim());
       if (priceValue == null || priceValue < 0) {
         _showSnackBar('单价无效，请检查输入');
         setState(() => _isSaving = false);
         return;
       }
+
+      // 可选字段解析
+      final totalPieces = _totalPiecesController.text.trim().isEmpty
+          ? null
+          : int.tryParse(_totalPiecesController.text.trim());
+      final grossWeight = _grossWeightController.text.trim().isEmpty
+          ? null
+          : double.tryParse(_grossWeightController.text.trim());
+      final tareWeight = _tareWeightController.text.trim().isEmpty
+          ? null
+          : double.tryParse(_tareWeightController.text.trim());
 
       final record = StockMovement(
         timestamp: DateTime.now().millisecondsSinceEpoch,
@@ -167,6 +189,15 @@ class _AddRecordPageState extends State<AddRecordPage> {
         quantity: quantityValue,
         unitPrice: priceValue,
         syncStatus: SyncStatus.pending,
+        productName: _productNameController.text.trim().isEmpty
+            ? null
+            : _productNameController.text.trim(),
+        totalPieces: totalPieces,
+        grossWeight: grossWeight,
+        tareWeight: tareWeight,
+        deliveryPerson: _deliveryPersonController.text.trim().isEmpty
+            ? null
+            : _deliveryPersonController.text.trim(),
       );
 
       await DatabaseHelper.instance.insertMovement(record);
@@ -235,8 +266,6 @@ class _AddRecordPageState extends State<AddRecordPage> {
   Future<void> _scanInvoiceFromGallery() async {
     try {
       // 1. 显式请求相册/存储权限
-      // permission_handler 的 Permission.photos 在 Android 13+ 自动映射到 READ_MEDIA_IMAGES，
-      // 在低版本自动映射到 READ_EXTERNAL_STORAGE
       final status = await Permission.photos.request();
       if (!status.isGranted) {
         _showSnackBar('请在系统设置中授予相册权限');
@@ -537,6 +566,8 @@ class _AddRecordPageState extends State<AddRecordPage> {
                   const SizedBox(height: 20),
 
                   // ───── 表单字段 ─────
+
+                  // 交易对象
                   TextFormField(
                     controller: _partnerController,
                     decoration: const InputDecoration(
@@ -555,6 +586,40 @@ class _AddRecordPageState extends State<AddRecordPage> {
                   ),
                   const SizedBox(height: 16),
 
+                  // 品名 + 送货人（同一行）
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _productNameController,
+                          decoration: const InputDecoration(
+                            labelText: '品名',
+                            hintText: '如：钢材、布料',
+                            prefixIcon: Icon(Icons.category_outlined),
+                            border: OutlineInputBorder(),
+                          ),
+                          textInputAction: TextInputAction.next,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _deliveryPersonController,
+                          decoration: const InputDecoration(
+                            labelText: '送货人',
+                            hintText: '如：张三',
+                            prefixIcon: Icon(Icons.person_outline),
+                            border: OutlineInputBorder(),
+                          ),
+                          textInputAction: TextInputAction.next,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 净重(kg) / 数量 + 单价(元/吨)
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -562,9 +627,9 @@ class _AddRecordPageState extends State<AddRecordPage> {
                         child: TextFormField(
                           controller: _quantityController,
                           decoration: const InputDecoration(
-                            labelText: '数量(kg)',
+                            labelText: '净重(kg) / 数量',
                             hintText: '支持 146+92+131',
-                            prefixIcon: Icon(Icons.format_list_numbered),
+                            prefixIcon: Icon(Icons.scale_outlined),
                             border: OutlineInputBorder(),
                           ),
                           keyboardType:
@@ -573,7 +638,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
                           onFieldSubmitted: _onQuantitySubmitted,
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
-                              return '请输入数量';
+                              return '请输入净重';
                             }
                             final parsed = _evaluateExpression(value.trim());
                             if (parsed == null || parsed <= 0) {
@@ -588,14 +653,14 @@ class _AddRecordPageState extends State<AddRecordPage> {
                         child: TextFormField(
                           controller: _unitPriceController,
                           decoration: const InputDecoration(
-                            labelText: '单价（元）',
-                            hintText: '如：12.50',
+                            labelText: '单价 (元/吨)',
+                            hintText: '如：4500',
                             prefixIcon: Icon(Icons.attach_money),
                             border: OutlineInputBorder(),
                           ),
                           keyboardType:
                               const TextInputType.numberWithOptions(decimal: true),
-                          textInputAction: TextInputAction.done,
+                          textInputAction: TextInputAction.next,
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
                               return '请输入单价';
@@ -610,6 +675,84 @@ class _AddRecordPageState extends State<AddRecordPage> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 16),
+
+                  // 总件数 + 毛重(kg)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _totalPiecesController,
+                          decoration: const InputDecoration(
+                            labelText: '总件数',
+                            hintText: '如：5',
+                            prefixIcon: Icon(Icons.inventory_2_outlined),
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.number,
+                          textInputAction: TextInputAction.next,
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return null; // 可选
+                            }
+                            if (int.tryParse(value.trim()) == null) {
+                              return '请输入整数';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _grossWeightController,
+                          decoration: const InputDecoration(
+                            labelText: '毛重(kg)',
+                            hintText: '如：1520.5',
+                            prefixIcon: Icon(Icons.fitness_center_outlined),
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType:
+                              const TextInputType.numberWithOptions(decimal: true),
+                          textInputAction: TextInputAction.next,
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return null; // 可选
+                            }
+                            if (double.tryParse(value.trim()) == null) {
+                              return '请输入数字';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 扣皮(kg)
+                  TextFormField(
+                    controller: _tareWeightController,
+                    decoration: const InputDecoration(
+                      labelText: '扣皮(kg)',
+                      hintText: '如：20.0',
+                      prefixIcon: Icon(Icons.remove_circle_outline),
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    textInputAction: TextInputAction.done,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return null; // 可选
+                      }
+                      if (double.tryParse(value.trim()) == null) {
+                        return '请输入数字';
+                      }
+                      return null;
+                    },
+                  ),
                   const SizedBox(height: 12),
 
                   // 动态总金额
@@ -622,7 +765,8 @@ class _AddRecordPageState extends State<AddRecordPage> {
                             double.tryParse(_quantityController.text.trim()) ?? 0;
                         final price =
                             double.tryParse(_unitPriceController.text.trim()) ?? 0;
-                        final total = qty * price;
+                        // 公式：(净重 kg / 1000) * 单价(元/吨) = 总金额(元)
+                        final total = (qty / 1000) * price;
                         return Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 10),
