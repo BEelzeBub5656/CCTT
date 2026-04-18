@@ -221,6 +221,24 @@ class _AddRecordPageState extends State<AddRecordPage> {
     );
   }
 
+  // ------------------- 极速连录 -------------------
+
+  /// 弹出极速连录 BottomSheet，用于连续录入大量重量数据
+  Future<void> _showRapidEntrySheet() async {
+    final result = await showModalBottomSheet<_RapidEntryResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _RapidEntryBottomSheet(),
+    );
+
+    if (result != null && mounted) {
+      _quantityController.text = _formatNumber(result.totalWeight);
+      _totalPiecesController.text = result.count.toString();
+      setState(() {}); // 刷新总金额
+    }
+  }
+
   // ------------------- OCR 扫描 -------------------
 
   /// 从相机拍照识别
@@ -624,13 +642,25 @@ class _AddRecordPageState extends State<AddRecordPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
+                        flex: 5,
                         child: TextFormField(
                           controller: _quantityController,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: '净重(kg) / 数量',
                             hintText: '支持 146+92+131',
-                            prefixIcon: Icon(Icons.scale_outlined),
-                            border: OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.scale_outlined),
+                            border: const OutlineInputBorder(),
+                            suffixIcon: TextButton.icon(
+                              onPressed: _showRapidEntrySheet,
+                              icon: const Icon(Icons.speed, size: 18),
+                              label: const Text('极速连录'),
+                              style: TextButton.styleFrom(
+                                foregroundColor:
+                                    Theme.of(context).colorScheme.primary,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8),
+                              ),
+                            ),
                           ),
                           keyboardType:
                               const TextInputType.numberWithOptions(decimal: true),
@@ -988,4 +1018,370 @@ class _OcrResult {
   final String? unitPrice;
 
   _OcrResult({this.partnerName, this.quantity, this.unitPrice});
+}
+
+// ───────────────────────────────────────────────
+// 极速连录 BottomSheet
+// ───────────────────────────────────────────────
+
+/// 极速连录结果
+class _RapidEntryResult {
+  final double totalWeight;
+  final int count;
+
+  const _RapidEntryResult({required this.totalWeight, required this.count});
+}
+
+/// 自定义数字键盘 BottomSheet，用于连续录入大量重量数据
+class _RapidEntryBottomSheet extends StatefulWidget {
+  const _RapidEntryBottomSheet();
+
+  @override
+  State<_RapidEntryBottomSheet> createState() =>
+      _RapidEntryBottomSheetState();
+}
+
+class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
+  /// 已录入的重量列表
+  final List<double> _weights = [];
+
+  /// 当前输入的数字字符串
+  String _input = '';
+
+  double get _totalWeight =>
+      _weights.fold(0.0, (sum, w) => sum + w);
+
+  /// 追加数字或小数点
+  void _onKeyPressed(String key) {
+    setState(() {
+      if (key == '.') {
+        // 只能有一个小数点
+        if (!_input.contains('.')) {
+          _input = _input.isEmpty ? '0.' : '$_input.';
+        }
+      } else {
+        _input += key;
+      }
+    });
+  }
+
+  /// 退格
+  void _onBackspace() {
+    setState(() {
+      if (_input.isNotEmpty) {
+        _input = _input.substring(0, _input.length - 1);
+      }
+    });
+  }
+
+  /// 下一笔：将当前输入加入列表
+  void _onNext() {
+    final value = double.tryParse(_input);
+    if (value == null || value <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请输入有效的正数重量')),
+      );
+      return;
+    }
+    setState(() {
+      _weights.add(value);
+      _input = '';
+    });
+  }
+
+  /// 完成：返回结果
+  void _onDone() {
+    // 如果输入框还有未提交的内容，先自动提交
+    if (_input.isNotEmpty) {
+      final value = double.tryParse(_input);
+      if (value != null && value > 0) {
+        _weights.add(value);
+      }
+    }
+    if (_weights.isEmpty) {
+      Navigator.of(context).pop();
+      return;
+    }
+    Navigator.of(context).pop(
+      _RapidEntryResult(
+        totalWeight: _totalWeight,
+        count: _weights.length,
+      ),
+    );
+  }
+
+  /// 删除某一项
+  void _onDeleteItem(int index) {
+    setState(() {
+      _weights.removeAt(index);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final media = MediaQuery.of(context);
+
+    return Container(
+      // 占据屏幕 85% 高度，留一点顶部空间方便手势关闭
+      height: media.size.height * 0.85,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: SafeArea(
+        child: Column(
+          children: [
+            // ── 顶部抓手 ──
+            Container(
+              margin: const EdgeInsets.only(top: 8, bottom: 4),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+
+            // ── 标题 ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.speed, color: Colors.teal),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      '极速连录',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, size: 20),
+                    label: const Text('取消'),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── 总计栏 ──
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.teal.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.teal.shade200),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '共计',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.teal.shade800,
+                    ),
+                  ),
+                  Text(
+                    '${_totalWeight.toStringAsFixed(2)} kg（共 ${_weights.length} 件）',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.teal.shade800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // ── 已录入列表 ──
+            Expanded(
+              flex: 2,
+              child: _weights.isEmpty
+                  ? Center(
+                      child: Text(
+                        '点击下方数字键盘录入重量',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    )
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _weights.asMap().entries.map((entry) {
+                          final idx = entry.key;
+                          final weight = entry.value;
+                          return Chip(
+                            avatar: CircleAvatar(
+                              backgroundColor: Colors.teal.shade100,
+                              child: Text(
+                                '${idx + 1}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.teal.shade800,
+                                ),
+                              ),
+                            ),
+                            label: Text(
+                              '${weight.toStringAsFixed(2)} kg',
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                            deleteIcon: const Icon(Icons.close, size: 18),
+                            onDeleted: () => _onDeleteItem(idx),
+                            backgroundColor: Colors.grey.shade100,
+                          );
+                        }).toList(),
+                      ),
+                    ),
+            ),
+
+            // ── 当前输入显示 ──
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    '当前输入',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  Text(
+                    _input.isEmpty ? '—' : '$_input kg',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── 数字键盘 ──
+            Expanded(
+              flex: 3,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    // 左侧数字区
+                    Expanded(
+                      flex: 3,
+                      child: GridView.count(
+                        crossAxisCount: 3,
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        childAspectRatio: 1.6,
+                        physics: const NeverScrollableScrollPhysics(),
+                        children: [
+                          ...['7', '8', '9', '4', '5', '6', '1', '2', '3']
+                              .map((k) => _buildKeyButton(k)),
+                          _buildKeyButton('.'),
+                          _buildKeyButton('0'),
+                          _buildKeyButton('⌫', onPressed: _onBackspace),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // 右侧操作区
+                    Expanded(
+                      flex: 1,
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: _onNext,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(0),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.add, size: 28),
+                                  SizedBox(height: 4),
+                                  Text('下一笔',
+                                      style: TextStyle(fontSize: 14)),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: _onDone,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.teal,
+                                minimumSize: const Size.fromHeight(0),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.check, size: 28),
+                                  SizedBox(height: 4),
+                                  Text('完成',
+                                      style: TextStyle(fontSize: 14)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 单个数字按键
+  Widget _buildKeyButton(String label, {VoidCallback? onPressed}) {
+    return Material(
+      color: Colors.grey.shade200,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onPressed ?? () => _onKeyPressed(label),
+        borderRadius: BorderRadius.circular(12),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: label == '⌫' ? 22 : 26,
+              fontWeight: FontWeight.w500,
+              color: label == '⌫' ? Colors.red.shade700 : Colors.black87,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
