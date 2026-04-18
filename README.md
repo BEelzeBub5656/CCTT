@@ -1,6 +1,6 @@
 # CCTT 库存管理
 
-离线优先的库存管理 App，专为毛纺厂出入库场景设计。支持本地 SQLite 持久化、拍照 OCR 录入、极速连录重量、局域网/Tailscale P2P 同步到 PC 后端。
+离线优先的库存管理 App，专为**毛纺厂出入库场景**设计。支持本地 SQLite 持久化、拍照 OCR 录入、极速连录重量、局域网/Tailscale P2P 同步到 PC 后端。
 
 ## 核心功能
 
@@ -38,11 +38,55 @@ pending ──点击同步──► syncing ──POST 200──► synced（绿
 - `toJson()` 转换在 try-catch 内部执行，转换崩溃也会把状态复位为 `failed`
 - 同步过程不阻断 UI，SnackBar 提示 + 列表实时刷新
 
+## PC 后端 API 对接
+
+### 配置地址
+
+App 右上角 ⚙️ 设置 → 输入 PC 后端地址，例如：
+
+```
+http://100.x.x.x:3000
+```
+
+### 接收接口
+
+```http
+POST /api/sync
+Content-Type: application/json
+```
+
+**Request Body**（JSON 数组）：
+
+```json
+[
+  {
+    "id": "uuid-string",
+    "timestamp": 1713331200000,
+    "partnerName": "张三纺织",
+    "warehouseId": "warehouse-uuid",
+    "type": "outbound",
+    "quantity": 1523.50,
+    "unitPrice": 8500.00,
+    "syncStatus": "pending",
+    "color": "白色",
+    "variety": "羊毛",
+    "totalPieces": 12,
+    "grossWeight": 1550.00,
+    "tareWeight": 26.50,
+    "deliveryPerson": "李四"
+  }
+]
+```
+
+**Response**: HTTP 200 表示接收成功，App 将批量标记为 `synced`。
+
 ## 构建
 
 ```bash
 flutter build apk --debug
 ```
+
+产物：`build/app/outputs/flutter-apk/app-debug.apk`
 
 ## 项目结构
 
@@ -62,3 +106,16 @@ lib/
 │   └── settings_service.dart     # SharedPreferences 封装
 └── main.dart
 ```
+
+## 开发记录
+
+| 提交 | 说明 |
+|------|------|
+| `f1412b1` | 统一四色同步状态标签，修复 syncing 卡死问题 |
+| `d96c945` | 全面 UI 重构：颜色/品种拆分、毛重扣皮联动 |
+| `c22773a` | 极速连录 BottomSheet |
+| `9a8105d` | 单据详情页 |
+
+---
+
+详见 [AGENTS.md](AGENTS.md) 获取 AI 开发规范。
