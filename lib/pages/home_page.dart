@@ -7,6 +7,7 @@ import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 import '../services/sync_service.dart';
 import 'add_record_page.dart';
+import 'record_detail_page.dart';
 
 /// 主页面
 ///
@@ -389,6 +390,16 @@ class _HomePageState extends State<HomePage> {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: ListTile(
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => RecordDetailPage(
+                record: record,
+                warehouseName: _warehouseName(record.warehouseId),
+              ),
+            ),
+          );
+        },
         leading: CircleAvatar(
           backgroundColor: isPending
               ? Colors.orange.shade100
