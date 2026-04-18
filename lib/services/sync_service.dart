@@ -1,7 +1,11 @@
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/database_helper.dart';
 import '../models/stock_movement.dart';
+
+/// SharedPreferences Key，用于存储后端地址
+const _kServerBaseUrl = 'server_base_url';
 
 /// 同步结果封装
 class SyncResult {
@@ -24,28 +28,37 @@ class SyncResult {
       SyncResult._(false, '同步失败：$reason', 0);
 
   factory SyncResult.notConfigured() =>
-      const SyncResult._(false, '后端地址未配置，请在代码中修改 _baseUrl 为真实 IP', 0);
+      const SyncResult._(false, '后端地址未配置，请在设置中配置 PC 地址', 0);
 }
 
 /// P2P 同步服务
 ///
 /// 负责将本地 [SyncStatus.pending] 的库存移动记录批量推送到 PC 后端 API。
 class SyncService {
-  /// ⚠️ 请将 '100.x.x.x' 替换为你的 PC 在 Tailscale/WireGuard 中的真实虚拟 IP
-  static const String _baseUrl = 'http://100.x.x.x:3000';
-
-  final Dio _dio;
+  final Dio? _dio;
   final DatabaseHelper _db;
 
   SyncService({Dio? dio, DatabaseHelper? db})
-      : _dio = dio ??
-            Dio(BaseOptions(
-              baseUrl: _baseUrl,
-              connectTimeout: const Duration(seconds: 5),
-              receiveTimeout: const Duration(seconds: 10),
-              headers: {'Content-Type': 'application/json'},
-            )),
+      : _dio = dio,
         _db = db ?? DatabaseHelper.instance;
+
+  /// 从 SharedPreferences 读取并解析后端地址
+  ///
+  /// - 若用户未配置，返回 null
+  /// - 若地址不含协议头，自动补全 http://
+  static Future<String?> _resolveBaseUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kServerBaseUrl);
+    if (raw == null || raw.trim().isEmpty) {
+      return null;
+    }
+    var url = raw.trim();
+    // 自动补全协议头
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'http://$url';
+    }
+    return url;
+  }
 
   /// 探测并同步
   ///
@@ -55,9 +68,26 @@ class SyncService {
   /// 4. 若成功，批量将本地记录状态更新为 [SyncStatus.synced]
   /// 5. 若超时或连接失败，返回 [SyncResult.offline]
   Future<SyncResult> syncPendingRecords() async {
-    // 占位符检测：如果地址仍是默认值，直接提示未配置
-    if (_baseUrl.contains('100.x.x.x')) {
+    // 1. 解析动态后端地址
+    final baseUrl = await _resolveBaseUrl();
+    if (baseUrl == null) {
       return SyncResult.notConfigured();
+    }
+
+    // 2. 创建或复用 Dio 实例
+    // 注意：字段的空安全无法自动提升，需先赋值给局部变量
+    final Dio dio;
+    final existingDio = _dio;
+    if (existingDio != null) {
+      dio = existingDio;
+      dio.options.baseUrl = baseUrl;
+    } else {
+      dio = Dio(BaseOptions(
+        baseUrl: baseUrl,
+        connectTimeout: const Duration(seconds: 5),
+        receiveTimeout: const Duration(seconds: 10),
+        headers: {'Content-Type': 'application/json'},
+      ));
     }
 
     final pending = await _db.getPendingMovements();
@@ -66,7 +96,7 @@ class SyncService {
     }
 
     try {
-      final response = await _dio.post<List<dynamic>>(
+      final response = await dio.post<List<dynamic>>(
         '/api/sync',
         data: pending.map((r) => r.toJson()).toList(),
       );

@@ -46,6 +46,9 @@ dependencies:
   permission_handler: ^11.4.0
   equatable: ^2.0.7
 
+  # 本地配置持久化
+  shared_preferences: ^2.5.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

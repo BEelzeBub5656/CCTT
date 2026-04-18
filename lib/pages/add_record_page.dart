@@ -194,13 +194,15 @@ class _AddRecordPageState extends State<AddRecordPage> {
 
   /// 从相机拍照识别
   Future<void> _scanInvoiceFromCamera() async {
-    final status = await Permission.camera.request();
-    if (!status.isGranted) {
-      _showSnackBar('需要相机权限才能扫描发票');
-      return;
-    }
-
     try {
+      // 1. 显式请求相机权限
+      final status = await Permission.camera.request();
+      if (!status.isGranted) {
+        _showSnackBar('请在系统设置中授予相机权限');
+        return;
+      }
+
+      // 2. 获取可用摄像头列表
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
         _showSnackBar('未检测到可用摄像头');
@@ -208,6 +210,8 @@ class _AddRecordPageState extends State<AddRecordPage> {
       }
 
       if (!mounted) return;
+
+      // 3. 打开相机预览弹窗拍照
       final imageFile = await showDialog<XFile>(
         context: context,
         barrierDismissible: false,
@@ -218,18 +222,28 @@ class _AddRecordPageState extends State<AddRecordPage> {
 
       if (imageFile == null || !mounted) return;
       await _processOcrImage(imageFile.path, source: '相机');
-    } catch (e) {
-      debugPrint('相机扫描出错: $e');
+    } catch (e, stackTrace) {
+      debugPrint('相机扫描异常: $e');
+      debugPrint('StackTrace: $stackTrace');
       if (mounted) {
-        _showSnackBar('相机扫描出错：$e');
+        _showSnackBar('相机扫描异常：$e');
       }
     }
   }
 
   /// 从相册选择照片识别
   Future<void> _scanInvoiceFromGallery() async {
-    // image_picker 会自己处理权限，直接调用即可
     try {
+      // 1. 显式请求相册/存储权限
+      // permission_handler 的 Permission.photos 在 Android 13+ 自动映射到 READ_MEDIA_IMAGES，
+      // 在低版本自动映射到 READ_EXTERNAL_STORAGE
+      final status = await Permission.photos.request();
+      if (!status.isGranted) {
+        _showSnackBar('请在系统设置中授予相册权限');
+        return;
+      }
+
+      // 2. 打开系统相册选择图片
       final picker = ImagePicker();
       final picked = await picker.pickImage(
         source: ImageSource.gallery,
@@ -240,10 +254,11 @@ class _AddRecordPageState extends State<AddRecordPage> {
 
       if (picked == null || !mounted) return;
       await _processOcrImage(picked.path, source: '相册');
-    } catch (e) {
-      debugPrint('相册选择出错: $e');
+    } catch (e, stackTrace) {
+      debugPrint('相册选择异常: $e');
+      debugPrint('StackTrace: $stackTrace');
       if (mounted) {
-        _showSnackBar('相册选择出错：$e');
+        _showSnackBar('相册选择异常：$e');
       }
     }
   }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/database_helper.dart';
 import '../models/stock_movement.dart';
@@ -140,6 +141,58 @@ class _HomePageState extends State<HomePage> {
     controller.dispose();
   }
 
+  /// 设置后端地址弹窗
+  Future<void> _showSettingsDialog() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedUrl = prefs.getString('server_base_url') ?? '';
+    final controller = TextEditingController(text: savedUrl);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('设置后端地址'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: '后端地址',
+              hintText: '例如：100.x.x.x:3000',
+              prefixIcon: Icon(Icons.link),
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.url,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => Navigator.of(dialogContext).pop(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final url = controller.text.trim();
+                final scaffold = ScaffoldMessenger.of(context);
+                await prefs.setString('server_base_url', url);
+                if (!dialogContext.mounted) return;
+                Navigator.of(dialogContext).pop();
+                if (mounted) {
+                  scaffold.showSnackBar(
+                    const SnackBar(content: Text('后端地址已保存')),
+                  );
+                }
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+  }
+
   /// 创建默认仓库（空状态快捷入口）
   Future<void> _createDefaultWarehouse() async {
     final scaffold = ScaffoldMessenger.of(context);
@@ -199,6 +252,11 @@ class _HomePageState extends State<HomePage> {
             icon: const Icon(Icons.refresh),
             tooltip: '刷新列表',
             onPressed: _onRefresh,
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: '设置',
+            onPressed: _showSettingsDialog,
           ),
         ],
       ),
