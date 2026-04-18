@@ -10,7 +10,7 @@ import '../models/warehouse.dart';
 /// 支持多仓库库存管理，严格遵循 Offline-First 原则。
 class DatabaseHelper {
   static const String _databaseName = 'cctt_database.db';
-  static const int _databaseVersion = 2;
+  static const int _databaseVersion = 3; // v3: 新增毛厂出库单扩展字段
 
   // 表名
   static const String _warehousesTable = 'warehouses';
@@ -47,10 +47,10 @@ class DatabaseHelper {
     await _createStockMovementsTable(db);
   }
 
-  /// 数据库升级（v1 → v2）
+  /// 数据库升级
   ///
-  /// v1 仅有 transaction_records 表，v2 将其重构为 stock_movements 并新增 warehouses 表。
-  /// 由于字段不兼容，旧表数据将被丢弃。
+  /// - v1 → v2：旧版 transaction_records 表被重构为 stock_movements + warehouses
+  /// - v2 → v3：平滑添加毛厂出库单扩展字段（ALTER TABLE ADD COLUMN），保留全部旧数据
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // 删除旧版 transaction_records 表（如有）
@@ -58,6 +58,20 @@ class DatabaseHelper {
       // 创建新版表
       await _createWarehousesTable(db);
       await _createStockMovementsTable(db);
+    }
+
+    if (oldVersion < 3) {
+      // v2 → v3：为已存在的 stock_movements 表添加新列（nullable，兼容旧数据）
+      await db.execute(
+          'ALTER TABLE $_movementsTable ADD COLUMN productName TEXT');
+      await db.execute(
+          'ALTER TABLE $_movementsTable ADD COLUMN totalPieces INTEGER');
+      await db.execute(
+          'ALTER TABLE $_movementsTable ADD COLUMN grossWeight REAL');
+      await db.execute(
+          'ALTER TABLE $_movementsTable ADD COLUMN tareWeight REAL');
+      await db.execute(
+          'ALTER TABLE $_movementsTable ADD COLUMN deliveryPerson TEXT');
     }
   }
 
@@ -71,7 +85,7 @@ class DatabaseHelper {
     ''');
   }
 
-  /// 创建库存移动记录表
+  /// 创建库存移动记录表（v3，含毛厂出库单扩展字段）
   Future<void> _createStockMovementsTable(Database db) async {
     await db.execute('''
       CREATE TABLE $_movementsTable (
@@ -83,6 +97,11 @@ class DatabaseHelper {
         quantity REAL NOT NULL,
         unitPrice REAL NOT NULL,
         syncStatus TEXT NOT NULL,
+        productName TEXT,
+        totalPieces INTEGER,
+        grossWeight REAL,
+        tareWeight REAL,
+        deliveryPerson TEXT,
         FOREIGN KEY (warehouseId) REFERENCES $_warehousesTable(id)
           ON DELETE RESTRICT
       )
