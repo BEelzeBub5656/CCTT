@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/database_helper.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
+import '../services/settings_service.dart';
 import '../services/sync_service.dart';
 import 'add_record_page.dart';
 import 'record_detail_page.dart';
@@ -23,7 +23,6 @@ class _HomePageState extends State<HomePage> {
   List<StockMovement> _movements = [];
   List<Warehouse> _warehouses = [];
   bool _isLoading = true;
-  bool _isSyncing = false;
 
   /// null 表示「所有仓库」
   String? _selectedWarehouseId;
@@ -61,23 +60,38 @@ class _HomePageState extends State<HomePage> {
     await _loadData();
   }
 
-  /// 手动同步
+  /// 手动同步（先变蓝、再变绿的视觉反馈）
   Future<void> _syncRecords() async {
-    setState(() => _isSyncing = true);
-    final result = await SyncService().syncPendingRecords();
-    setState(() => _isSyncing = false);
-
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(result.message),
-        backgroundColor: result.success ? Colors.green : Colors.red,
-      ),
-    );
+    // 1. 找出所有 != synced 的记录，标记为 syncing
+    final allRecords = await DatabaseHelper.instance.getAllMovements();
+    final unsynced = allRecords
+        .where((r) => r.syncStatus != SyncStatus.synced)
+        .toList();
+    if (unsynced.isNotEmpty) {
+      final ids = unsynced.map((r) => r.id).toList();
+      await DatabaseHelper.instance.updateSyncStatus(ids, SyncStatus.syncing);
+    }
 
-    if (result.success) {
-      await _loadData();
+    // 2. 立刻刷新界面 → 蓝色"正在同步"
+    await _loadData();
+
+    // 3. 发起网络请求
+    final result = await SyncService.syncPendingRecords();
+
+    // 4. 最后再刷新界面 → 绿色（成功）或红色（失败）
+    await _loadData();
+
+    // 5. 弹窗提示结果
+    if (mounted) {
+      final isSuccess = result.contains('成功');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result),
+          backgroundColor: isSuccess ? Colors.green : Colors.red,
+        ),
+      );
     }
   }
 
@@ -139,26 +153,30 @@ class _HomePageState extends State<HomePage> {
       },
     );
 
-    controller.dispose();
+    // 延迟到 dialog 完全关闭后再 dispose controller
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.dispose();
+    });
   }
 
-  /// 设置后端地址弹窗
+  /// 设置 PC 接收端地址弹窗
   Future<void> _showSettingsDialog() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedUrl = prefs.getString('server_base_url') ?? '';
+    final savedUrl = await SettingsService.getServerBaseUrl() ?? '';
     final controller = TextEditingController(text: savedUrl);
+
+    if (!mounted) return;
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('设置后端地址'),
+          title: const Text('设置 PC 接收端地址'),
           content: TextField(
             controller: controller,
             autofocus: true,
             decoration: const InputDecoration(
               labelText: '后端地址',
-              hintText: '例如：100.x.x.x:3000',
+              hintText: '例如：http://100.x.x.x:3000',
               prefixIcon: Icon(Icons.link),
               border: OutlineInputBorder(),
             ),
@@ -174,12 +192,29 @@ class _HomePageState extends State<HomePage> {
             FilledButton(
               onPressed: () async {
                 final url = controller.text.trim();
-                final scaffold = ScaffoldMessenger.of(context);
-                await prefs.setString('server_base_url', url);
+                if (url.isEmpty) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      const SnackBar(content: Text('地址不能为空')),
+                    );
+                  }
+                  return;
+                }
+                if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      const SnackBar(
+                        content: Text('地址必须以 http:// 或 https:// 开头'),
+                      ),
+                    );
+                  }
+                  return;
+                }
+                await SettingsService.setServerBaseUrl(url);
                 if (!dialogContext.mounted) return;
                 Navigator.of(dialogContext).pop();
                 if (mounted) {
-                  scaffold.showSnackBar(
+                  ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('后端地址已保存')),
                   );
                 }
@@ -191,7 +226,10 @@ class _HomePageState extends State<HomePage> {
       },
     );
 
-    controller.dispose();
+    // 延迟到 dialog 完全关闭后再 dispose controller
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.dispose();
+    });
   }
 
   /// 创建默认仓库（空状态快捷入口）
@@ -231,24 +269,11 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('CCTT 库存管理'),
         actions: [
-          if (_isSyncing)
-            const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              ),
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.cloud_upload),
-              tooltip: '同步到 PC',
-              onPressed: _syncRecords,
-            ),
+          IconButton(
+            icon: const Icon(Icons.cloud_upload),
+            tooltip: '同步到 PC',
+            onPressed: _syncRecords,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: '刷新列表',
@@ -382,9 +407,49 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// 根据状态生成带颜色的文字标签
+  Widget _buildSyncStatusBadge(SyncStatus status) {
+    Color color;
+    String text;
+    switch (status) {
+      case SyncStatus.synced:
+        color = Colors.green;
+        text = '已同步';
+        break;
+      case SyncStatus.syncing:
+        color = Colors.blue;
+        text = '正在同步';
+        break;
+      case SyncStatus.failed:
+        color = Colors.red;
+        text = '同步失败';
+        break;
+      case SyncStatus.pending:
+        color = Colors.orange;
+        text = '未同步';
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color, width: 1.5),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
   /// 单条记录卡片
   Widget _buildMovementCard(StockMovement record) {
-    final isPending = record.syncStatus == SyncStatus.pending;
     final isInbound = record.type == MovementType.inbound;
 
     // 主标题：颜色 + 品种
@@ -406,14 +471,16 @@ class _HomePageState extends State<HomePage> {
           );
         },
         leading: CircleAvatar(
-          backgroundColor: isPending
-              ? Colors.orange.shade100
-              : Colors.green.shade100,
+          backgroundColor: record.syncStatus == SyncStatus.synced
+              ? Colors.green.shade100
+              : Colors.orange.shade100,
           child: Icon(
-            isPending ? Icons.sync : Icons.check_circle,
-            color: isPending
-                ? Colors.orange.shade800
-                : Colors.green.shade800,
+            record.syncStatus == SyncStatus.synced
+                ? Icons.check_circle
+                : Icons.sync,
+            color: record.syncStatus == SyncStatus.synced
+                ? Colors.green.shade800
+                : Colors.orange.shade800,
           ),
         ),
         title: Row(
@@ -466,14 +533,7 @@ class _HomePageState extends State<HomePage> {
             ),
           ],
         ),
-        trailing: Text(
-          '¥${record.totalAmount.toStringAsFixed(2)}',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: isPending ? Colors.orange : Colors.green,
-          ),
-        ),
+        trailing: _buildSyncStatusBadge(record.syncStatus),
       ),
     );
   }

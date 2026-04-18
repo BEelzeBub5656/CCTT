@@ -203,13 +203,13 @@ class DatabaseHelper {
     return maps.map((m) => StockMovement.fromJson(m)).toList();
   }
 
-  /// 查询所有 pending 状态的记录（用于批量同步）
+  /// 查询所有待同步的记录（pending + syncing，用于批量同步）
   Future<List<StockMovement>> getPendingMovements() async {
     final db = await database;
     final maps = await db.query(
       _movementsTable,
-      where: 'syncStatus = ?',
-      whereArgs: [SyncStatus.pending.name],
+      where: 'syncStatus = ? OR syncStatus = ?',
+      whereArgs: [SyncStatus.pending.name, SyncStatus.syncing.name],
       orderBy: 'timestamp DESC',
     );
     return maps.map((m) => StockMovement.fromJson(m)).toList();
@@ -224,5 +224,23 @@ class DatabaseHelper {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  /// 批量更新多条记录的同步状态
+  ///
+  /// 使用 SQLite [Batch] 减少事务往返，提升批量更新性能。
+  /// 安全批量更新同步状态
+  Future<void> updateSyncStatus(List<String> ids, SyncStatus status) async {
+    final db = await database;
+    Batch batch = db.batch();
+    for (String id in ids) {
+      batch.update(
+        _movementsTable,
+        {'syncStatus': status.name},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    }
+    await batch.commit(noResult: true);
   }
 }

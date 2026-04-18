@@ -23,13 +23,52 @@ class RecordDetailPage extends StatelessWidget {
 
   bool get _isInbound => record.type == MovementType.inbound;
 
-  bool get _isPending => record.syncStatus == SyncStatus.pending;
-
   /// 总金额 = (净重 kg / 1000) * 单价(元/吨)
   double get _totalAmount => (record.quantity / 1000) * record.unitPrice;
 
   /// 根据毛重和扣皮计算出的净重（用于校验）
   double get _calculatedNetWeight => record.grossWeight - record.tareWeight;
+
+  /// 根据状态生成带颜色的文字标签（与主页保持绝对统一）
+  Widget _buildSyncStatusBadge(SyncStatus status) {
+    Color color;
+    String text;
+    switch (status) {
+      case SyncStatus.synced:
+        color = Colors.green;
+        text = '已同步';
+        break;
+      case SyncStatus.syncing:
+        color = Colors.blue;
+        text = '正在同步';
+        break;
+      case SyncStatus.failed:
+        color = Colors.red;
+        text = '同步失败';
+        break;
+      case SyncStatus.pending:
+        color = Colors.orange;
+        text = '未同步';
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color, width: 1.5),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,8 +97,7 @@ class RecordDetailPage extends StatelessWidget {
             ),
             _buildInfoRow(
               label: '同步状态',
-              value: _isPending ? '待同步' : '已同步',
-              valueColor: _isPending ? Colors.orange : Colors.green,
+              customValue: _buildSyncStatusBadge(record.syncStatus),
             ),
           ]),
           const SizedBox(height: 16),
@@ -252,7 +290,8 @@ class RecordDetailPage extends StatelessWidget {
   // ───── 单行信息 ─────
   Widget _buildInfoRow({
     required String label,
-    required String value,
+    String? value,
+    Widget? customValue,
     Color? valueColor,
     bool isHighlight = false,
     bool muted = false,
@@ -273,18 +312,21 @@ class RecordDetailPage extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: fontSize ?? (isHighlight ? 17 : 15),
-                fontWeight: isHighlight ? FontWeight.w600 : FontWeight.normal,
-                color: muted
-                    ? Colors.grey.shade500
-                    : (valueColor ?? Colors.black87),
+          if (customValue != null)
+            customValue
+          else
+            Expanded(
+              child: Text(
+                value ?? '',
+                style: TextStyle(
+                  fontSize: fontSize ?? (isHighlight ? 17 : 15),
+                  fontWeight: isHighlight ? FontWeight.w600 : FontWeight.normal,
+                  color: muted
+                      ? Colors.grey.shade500
+                      : (valueColor ?? Colors.black87),
+                ),
               ),
             ),
-          ),
         ],
       ),
     );

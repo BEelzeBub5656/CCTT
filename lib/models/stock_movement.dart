@@ -1,12 +1,10 @@
 import 'package:uuid/uuid.dart';
 
-/// 同步状态枚举
-enum SyncStatus { pending, synced }
-
-/// 库存移动类型枚举
-/// - [inbound]: 入库（增加库存）
-/// - [outbound]: 出库（减少库存）
 enum MovementType { inbound, outbound }
+// 扩充为 4 种精确的业务状态
+enum SyncStatus { pending, syncing, synced, failed }
+
+  // ... 下面的代码保持原样不要动 ...
 
 /// 库存移动记录模型（毛纺厂专用版）
 ///
