@@ -387,6 +387,11 @@ class _HomePageState extends State<HomePage> {
     final isPending = record.syncStatus == SyncStatus.pending;
     final isInbound = record.type == MovementType.inbound;
 
+    // 主标题：颜色 + 品种
+    final displayTitle = record.color.isNotEmpty || record.variety.isNotEmpty
+        ? '${record.color}${record.color.isNotEmpty && record.variety.isNotEmpty ? ' / ' : ''}${record.variety}'
+        : record.partnerName;
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: ListTile(
@@ -438,7 +443,7 @@ class _HomePageState extends State<HomePage> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                record.partnerName,
+                displayTitle,
                 style: const TextStyle(fontWeight: FontWeight.w600),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -453,7 +458,7 @@ class _HomePageState extends State<HomePage> {
               '${_warehouseName(record.warehouseId)}  •  ${_formatTimestamp(record.timestamp)}',
             ),
             Text(
-              '数量：${record.quantity.toStringAsFixed(2)}  ×  ¥${record.unitPrice.toStringAsFixed(2)}',
+              '净重 ${record.quantity.toStringAsFixed(2)} kg  |  单价 ¥${record.unitPrice.toStringAsFixed(2)}/吨',
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey.shade700,

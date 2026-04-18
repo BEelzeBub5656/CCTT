@@ -5,7 +5,7 @@ import '../models/stock_movement.dart';
 
 /// 记录详情页
 ///
-/// 展示一条 [StockMovement] 的全部信息，以卡片分组形式排版。
+/// 以单据凭证风格展示一条 [StockMovement] 的全部信息。
 class RecordDetailPage extends StatelessWidget {
   final StockMovement record;
   final String warehouseName;
@@ -28,19 +28,11 @@ class RecordDetailPage extends StatelessWidget {
   /// 总金额 = (净重 kg / 1000) * 单价(元/吨)
   double get _totalAmount => (record.quantity / 1000) * record.unitPrice;
 
-  /// 皮重后的净重校验显示（如果有毛重和扣皮）
-  double? get _calculatedNetWeight {
-    if (record.grossWeight != null && record.tareWeight != null) {
-      return record.grossWeight! - record.tareWeight!;
-    }
-    return null;
-  }
+  /// 根据毛重和扣皮计算出的净重（用于校验）
+  double get _calculatedNetWeight => record.grossWeight - record.tareWeight;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('单据详情'),
@@ -49,107 +41,113 @@ class RecordDetailPage extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           // ───── 头部概览卡片 ─────
-          _buildHeaderCard(colorScheme),
+          _buildHeaderCard(),
           const SizedBox(height: 16),
 
-                  // ───── 基本信息 ─────
+          // ───── 基本信息 ─────
           _buildSectionTitle('基本信息'),
-          _buildInfoCard(
-            children: [
-              _buildInfoRow(label: '流水号', value: record.id),
-              _buildInfoRow(label: '时间', value: _formattedTime),
-              _buildInfoRow(label: '仓库', value: warehouseName),
-              _buildInfoRow(
-                label: '同步状态',
-                value: _isPending ? '待同步' : '已同步',
-                valueColor: _isPending ? Colors.orange : Colors.green,
-              ),
-            ],
-          ),
+          _buildInfoCard(children: [
+            _buildInfoRow(label: '流水号', value: record.id),
+            _buildInfoRow(label: '交易时间', value: _formattedTime),
+            _buildInfoRow(label: '仓库', value: warehouseName),
+            _buildInfoRow(
+              label: '单据类型',
+              value: _isInbound ? '入库单' : '出库单',
+              valueColor: _isInbound ? Colors.green : Colors.red,
+              isHighlight: true,
+            ),
+            _buildInfoRow(
+              label: '同步状态',
+              value: _isPending ? '待同步' : '已同步',
+              valueColor: _isPending ? Colors.orange : Colors.green,
+            ),
+          ]),
           const SizedBox(height: 16),
 
           // ───── 交易信息 ─────
           _buildSectionTitle('交易信息'),
-          _buildInfoCard(
-            children: [
-              _buildInfoRow(label: '交易对象', value: record.partnerName),
-              _buildInfoRow(
-                label: '品名',
-                value: record.productName ?? '—',
-                muted: record.productName == null,
-              ),
-              _buildInfoRow(
-                label: '送货人',
-                value: record.deliveryPerson ?? '—',
-                muted: record.deliveryPerson == null,
-              ),
-            ],
-          ),
+          _buildInfoCard(children: [
+            _buildInfoRow(label: '交易对象', value: record.partnerName),
+            _buildInfoRow(
+              label: '颜色',
+              value: record.color.isEmpty ? '—' : record.color,
+              muted: record.color.isEmpty,
+            ),
+            _buildInfoRow(
+              label: '品种',
+              value: record.variety.isEmpty ? '—' : record.variety,
+              muted: record.variety.isEmpty,
+            ),
+            _buildInfoRow(
+              label: '送货人',
+              value: record.deliveryPerson ?? '—',
+              muted: record.deliveryPerson == null,
+            ),
+          ]),
           const SizedBox(height: 16),
 
           // ───── 重量明细 ─────
           _buildSectionTitle('重量明细'),
-          _buildInfoCard(
-            children: [
+          _buildInfoCard(children: [
+            _buildInfoRow(
+              label: '总件数',
+              value: record.totalPieces?.toString() ?? '—',
+              muted: record.totalPieces == null,
+            ),
+            _buildInfoRow(
+              label: '毛重',
+              value: record.grossWeight > 0
+                  ? '${record.grossWeight.toStringAsFixed(2)} kg'
+                  : '—',
+              muted: record.grossWeight <= 0,
+            ),
+            _buildInfoRow(
+              label: '扣皮（去皮）',
+              value: record.tareWeight > 0
+                  ? '${record.tareWeight.toStringAsFixed(2)} kg'
+                  : '—',
+              muted: record.tareWeight <= 0,
+            ),
+            const Divider(height: 24),
+            _buildInfoRow(
+              label: '净重',
+              value: '${record.quantity.toStringAsFixed(2)} kg',
+              isHighlight: true,
+            ),
+            if (record.grossWeight > 0 && record.tareWeight > 0)
               _buildInfoRow(
-                label: '总件数',
-                value: record.totalPieces?.toString() ?? '—',
-                muted: record.totalPieces == null,
+                label: '（毛重 - 扣皮校验）',
+                value: '${_calculatedNetWeight.toStringAsFixed(2)} kg',
+                valueColor: (_calculatedNetWeight - record.quantity).abs() < 0.01
+                    ? Colors.green
+                    : Colors.orange,
+                fontSize: 13,
               ),
-              _buildInfoRow(
-                label: '毛重',
-                value: record.grossWeight != null
-                    ? '${record.grossWeight!.toStringAsFixed(2)} kg'
-                    : '—',
-                muted: record.grossWeight == null,
-              ),
-              _buildInfoRow(
-                label: '扣皮（去皮）',
-                value: record.tareWeight != null
-                    ? '${record.tareWeight!.toStringAsFixed(2)} kg'
-                    : '—',
-                muted: record.tareWeight == null,
-              ),
-              const Divider(height: 24),
-              _buildInfoRow(
-                label: '净重',
-                value: '${record.quantity.toStringAsFixed(2)} kg',
-                isHighlight: true,
-              ),
-              if (_calculatedNetWeight != null)
-                _buildInfoRow(
-                  label: '（毛重 - 扣皮）',
-                  value: '${_calculatedNetWeight!.toStringAsFixed(2)} kg',
-                  valueColor: Colors.grey.shade600,
-                  fontSize: 13,
-                ),
-            ],
-          ),
+          ]),
           const SizedBox(height: 16),
 
           // ───── 金额明细 ─────
           _buildSectionTitle('金额明细'),
-          _buildInfoCard(
-            children: [
-              _buildInfoRow(
-                label: '单价',
-                value: '¥${record.unitPrice.toStringAsFixed(2)} / 吨',
-              ),
-              _buildInfoRow(
-                label: '计算公式',
-                value: '(${record.quantity.toStringAsFixed(2)} kg ÷ 1000) × ${record.unitPrice.toStringAsFixed(2)}',
-                valueColor: Colors.grey.shade600,
-                fontSize: 13,
-              ),
-              const Divider(height: 24),
-              _buildInfoRow(
-                label: '总金额',
-                value: '¥${_totalAmount.toStringAsFixed(2)}',
-                isHighlight: true,
-                valueColor: Colors.teal,
-              ),
-            ],
-          ),
+          _buildInfoCard(children: [
+            _buildInfoRow(
+              label: '单价',
+              value: '¥${record.unitPrice.toStringAsFixed(2)} / 吨',
+            ),
+            _buildInfoRow(
+              label: '计算公式',
+              value:
+                  '(${record.quantity.toStringAsFixed(2)} kg ÷ 1000) × ${record.unitPrice.toStringAsFixed(2)}',
+              valueColor: Colors.grey.shade600,
+              fontSize: 13,
+            ),
+            const Divider(height: 24),
+            _buildInfoRow(
+              label: '总金额',
+              value: '¥${_totalAmount.toStringAsFixed(2)}',
+              isHighlight: true,
+              valueColor: Colors.teal,
+            ),
+          ]),
           const SizedBox(height: 32),
         ],
       ),
@@ -157,7 +155,7 @@ class RecordDetailPage extends StatelessWidget {
   }
 
   // ───── 头部概览卡片 ─────
-  Widget _buildHeaderCard(ColorScheme colorScheme) {
+  Widget _buildHeaderCard() {
     return Card(
       elevation: 2,
       color: _isInbound ? Colors.green.shade50 : Colors.red.shade50,
@@ -266,7 +264,7 @@ class RecordDetailPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 100,
+            width: 110,
             child: Text(
               label,
               style: TextStyle(

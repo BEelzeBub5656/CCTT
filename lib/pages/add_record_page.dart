@@ -8,9 +8,11 @@ import '../data/database_helper.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 
-/// 新建库存移动记录页面（毛厂出库单版）
+/// 新建库存移动记录页面（毛纺厂专用版）
 ///
-/// 支持手动录入、相机 OCR 识别发票自动填充、以及从相册选择照片识别。
+/// 核心计重逻辑：
+///   净重 = 毛重(grossWeight) - 扣皮(tareWeight)
+///   总金额 = (净重 kg / 1000) × 单价(元/吨)
 class AddRecordPage extends StatefulWidget {
   const AddRecordPage({super.key});
 
@@ -21,12 +23,12 @@ class AddRecordPage extends StatefulWidget {
 class _AddRecordPageState extends State<AddRecordPage> {
   final _formKey = GlobalKey<FormState>();
   final _partnerController = TextEditingController();
-  final _productNameController = TextEditingController();
+  final _colorController = TextEditingController();
+  final _varietyController = TextEditingController();
   final _deliveryPersonController = TextEditingController();
-  final _quantityController = TextEditingController();
-  final _totalPiecesController = TextEditingController();
   final _grossWeightController = TextEditingController();
   final _tareWeightController = TextEditingController();
+  final _totalPiecesController = TextEditingController();
   final _unitPriceController = TextEditingController();
 
   List<Warehouse> _warehouses = [];
@@ -57,92 +59,32 @@ class _AddRecordPageState extends State<AddRecordPage> {
   @override
   void dispose() {
     _partnerController.dispose();
-    _productNameController.dispose();
+    _colorController.dispose();
+    _varietyController.dispose();
     _deliveryPersonController.dispose();
-    _quantityController.dispose();
-    _totalPiecesController.dispose();
     _grossWeightController.dispose();
     _tareWeightController.dispose();
+    _totalPiecesController.dispose();
     _unitPriceController.dispose();
     super.dispose();
   }
 
-  // ------------------- 表达式计算 -------------------
+  // ───── 净重联动计算 ─────
 
-  /// 解析并计算简单算术表达式（如 "146+92+131"）
-  /// 支持 +、-、*、/，从左到右计算，不支持优先级。
-  double? _evaluateExpression(String input) {
-    final expr = input.replaceAll(' ', '');
-    if (expr.isEmpty) return null;
-
-    // 直接是数字
-    final direct = double.tryParse(expr);
-    if (direct != null) return direct;
-
-    // 提取数字和运算符
-    final regex = RegExp(r'(\d+\.?\d*)|([+\-*/])');
-    final matches = regex.allMatches(expr).toList();
-    if (matches.isEmpty) return null;
-
-    final numbers = <double>[];
-    final operators = <String>[];
-
-    for (final match in matches) {
-      final token = match.group(0)!;
-      if (RegExp(r'[+\-*/]').hasMatch(token)) {
-        operators.add(token);
-      } else {
-        numbers.add(double.parse(token));
-      }
-    }
-
-    if (numbers.isEmpty) return null;
-
-    double result = numbers.first;
-    for (int i = 0; i < operators.length; i++) {
-      if (i + 1 >= numbers.length) break;
-      final op = operators[i];
-      final num2 = numbers[i + 1];
-      switch (op) {
-        case '+':
-          result += num2;
-          break;
-        case '-':
-          result -= num2;
-          break;
-        case '*':
-          result *= num2;
-          break;
-        case '/':
-          if (num2 == 0) return null;
-          result /= num2;
-          break;
-      }
-    }
-    return result;
+  /// 从当前毛重和扣皮控制器实时计算净重
+  double get _currentNetWeight {
+    final gross = double.tryParse(_grossWeightController.text.trim()) ?? 0;
+    final tare = double.tryParse(_tareWeightController.text.trim()) ?? 0;
+    return gross - tare;
   }
 
-  /// 当数量输入框提交时，自动计算表达式并回填
-  void _onQuantitySubmitted(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) return;
-    final result = _evaluateExpression(trimmed);
-    if (result != null) {
-      _quantityController.text = _formatNumber(result);
-      setState(() {}); // 刷新总金额
-    }
+  /// 当前总金额（实时）
+  double get _currentTotalAmount {
+    final price = double.tryParse(_unitPriceController.text.trim()) ?? 0;
+    return (_currentNetWeight / 1000) * price;
   }
 
-  String _formatNumber(double value) {
-    var text = value.toStringAsFixed(2);
-    // 移除末尾的 .00
-    if (text.endsWith('.00')) {
-      text = text.substring(0, text.length - 3);
-    }
-    return text;
-  }
-
-  // ------------------- 保存记录 -------------------
+  // ───── 保存记录 ─────
 
   Future<void> _saveRecord() async {
     if (!_formKey.currentState!.validate()) return;
@@ -154,15 +96,16 @@ class _AddRecordPageState extends State<AddRecordPage> {
     setState(() => _isSaving = true);
 
     try {
-      // 安全解析净重（支持表达式）
-      final quantityValue = _evaluateExpression(_quantityController.text.trim());
-      if (quantityValue == null || quantityValue <= 0) {
-        _showSnackBar('净重无效，请检查输入');
+      final grossWeight = double.parse(_grossWeightController.text.trim());
+      final tareWeight = double.tryParse(_tareWeightController.text.trim()) ?? 0;
+      final netWeight = grossWeight - tareWeight;
+
+      if (netWeight <= 0) {
+        _showSnackBar('净重必须大于 0，请检查毛重和扣皮');
         setState(() => _isSaving = false);
         return;
       }
 
-      // 单价（元/吨）
       final priceValue = double.tryParse(_unitPriceController.text.trim());
       if (priceValue == null || priceValue < 0) {
         _showSnackBar('单价无效，请检查输入');
@@ -170,31 +113,23 @@ class _AddRecordPageState extends State<AddRecordPage> {
         return;
       }
 
-      // 可选字段解析
       final totalPieces = _totalPiecesController.text.trim().isEmpty
           ? null
           : int.tryParse(_totalPiecesController.text.trim());
-      final grossWeight = _grossWeightController.text.trim().isEmpty
-          ? null
-          : double.tryParse(_grossWeightController.text.trim());
-      final tareWeight = _tareWeightController.text.trim().isEmpty
-          ? null
-          : double.tryParse(_tareWeightController.text.trim());
 
       final record = StockMovement(
         timestamp: DateTime.now().millisecondsSinceEpoch,
         partnerName: _partnerController.text.trim(),
         warehouseId: _selectedWarehouseId!,
         type: _selectedType,
-        quantity: quantityValue,
+        quantity: netWeight,
         unitPrice: priceValue,
         syncStatus: SyncStatus.pending,
-        productName: _productNameController.text.trim().isEmpty
-            ? null
-            : _productNameController.text.trim(),
-        totalPieces: totalPieces,
+        color: _colorController.text.trim(),
+        variety: _varietyController.text.trim(),
         grossWeight: grossWeight,
         tareWeight: tareWeight,
+        totalPieces: totalPieces,
         deliveryPerson: _deliveryPersonController.text.trim().isEmpty
             ? null
             : _deliveryPersonController.text.trim(),
@@ -221,9 +156,9 @@ class _AddRecordPageState extends State<AddRecordPage> {
     );
   }
 
-  // ------------------- 极速连录 -------------------
+  // ───── 极速连录 ─────
 
-  /// 弹出极速连录 BottomSheet，用于连续录入大量重量数据
+  /// 弹出极速连录 BottomSheet，连续录入多个毛重
   Future<void> _showRapidEntrySheet() async {
     final result = await showModalBottomSheet<_RapidEntryResult>(
       context: context,
@@ -233,25 +168,23 @@ class _AddRecordPageState extends State<AddRecordPage> {
     );
 
     if (result != null && mounted) {
-      _quantityController.text = _formatNumber(result.totalWeight);
+      _grossWeightController.text = result.totalWeight.toStringAsFixed(2);
       _totalPiecesController.text = result.count.toString();
-      setState(() {}); // 刷新总金额
+      setState(() {}); // 刷新净重和总金额
     }
   }
 
-  // ------------------- OCR 扫描 -------------------
+  // ───── OCR 扫描 ─────
 
   /// 从相机拍照识别
   Future<void> _scanInvoiceFromCamera() async {
     try {
-      // 1. 显式请求相机权限
       final status = await Permission.camera.request();
       if (!status.isGranted) {
         _showSnackBar('请在系统设置中授予相机权限');
         return;
       }
 
-      // 2. 获取可用摄像头列表
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
         _showSnackBar('未检测到可用摄像头');
@@ -260,7 +193,6 @@ class _AddRecordPageState extends State<AddRecordPage> {
 
       if (!mounted) return;
 
-      // 3. 打开相机预览弹窗拍照
       final imageFile = await showDialog<XFile>(
         context: context,
         barrierDismissible: false,
@@ -283,14 +215,12 @@ class _AddRecordPageState extends State<AddRecordPage> {
   /// 从相册选择照片识别
   Future<void> _scanInvoiceFromGallery() async {
     try {
-      // 1. 显式请求相册/存储权限
       final status = await Permission.photos.request();
       if (!status.isGranted) {
         _showSnackBar('请在系统设置中授予相册权限');
         return;
       }
 
-      // 2. 打开系统相册选择图片
       final picker = ImagePicker();
       final picked = await picker.pickImage(
         source: ImageSource.gallery,
@@ -311,7 +241,8 @@ class _AddRecordPageState extends State<AddRecordPage> {
   }
 
   /// 处理 OCR 识别（相机或相册共用）
-  Future<void> _processOcrImage(String imagePath, {required String source}) async {
+  Future<void> _processOcrImage(String imagePath,
+      {required String source}) async {
     setState(() => _isScanning = true);
 
     try {
@@ -322,11 +253,12 @@ class _AddRecordPageState extends State<AddRecordPage> {
         if (result != null) {
           _partnerController.text = result.partnerName ?? '';
           if (result.quantity != null) {
-            _quantityController.text = result.quantity!;
-            _onQuantitySubmitted(result.quantity!);
+            _grossWeightController.text = result.quantity!;
+            setState(() {}); // 刷新净重
           }
           if (result.unitPrice != null) {
             _unitPriceController.text = result.unitPrice!;
+            setState(() {}); // 刷新总金额
           }
           _showSnackBar('$source 识别成功，已自动填充部分字段');
         } else {
@@ -343,14 +275,10 @@ class _AddRecordPageState extends State<AddRecordPage> {
   }
 
   /// OCR 识别 + 正则提取
-  ///
-  /// 从发票文本中提取：
-  /// - 交易对象（收款方 / 交易对象 / 对方）
-  /// - 数量（数量 / Qty / Quantity）
-  /// - 单价（单价 / Unit Price / Price）
   Future<_OcrResult?> _recognizeInvoice(String imagePath) async {
     final inputImage = InputImage.fromFilePath(imagePath);
-    final textRecognizer = TextRecognizer(script: TextRecognitionScript.chinese);
+    final textRecognizer =
+        TextRecognizer(script: TextRecognitionScript.chinese);
 
     try {
       final recognizedText = await textRecognizer.processImage(inputImage);
@@ -360,23 +288,20 @@ class _AddRecordPageState extends State<AddRecordPage> {
       debugPrint(fullText);
       debugPrint('========================');
 
-      // 提取交易对象
       final partnerPattern = RegExp(
         r'(?:收款方|交易对象|对方)[：:\s]+([^\n]+)',
         caseSensitive: false,
       );
       final partnerMatch = partnerPattern.firstMatch(fullText);
-      final partner = partnerMatch?.group(1)?.trim().replaceAll(RegExp(r'[\s\u00A0]+$'), '');
+      final partner = partnerMatch?.group(1)?.trim();
 
-      // 提取数量
       final quantityPattern = RegExp(
-        r'(?:数量|Qty|Quantity)[：:\s]+([\d,]+\.?\d*)',
+        r'(?:数量|Qty|Quantity|毛重|净重)[：:\s]+([\d,]+\.?\d*)',
         caseSensitive: false,
       );
       final quantityMatch = quantityPattern.firstMatch(fullText);
       final quantity = quantityMatch?.group(1)?.replaceAll(',', '');
 
-      // 提取单价
       final unitPricePattern = RegExp(
         r'(?:单价|Unit Price|Price)[：:\s]+[¥￥]?\s*([\d,]+\.?\d*)',
         caseSensitive: false,
@@ -391,9 +316,9 @@ class _AddRecordPageState extends State<AddRecordPage> {
       );
     } on Exception catch (e) {
       debugPrint('ML Kit 识别异常: $e');
-      // 将异常转换为可理解的错误信息
       if (e.toString().contains('TextRecognizer')) {
-        throw Exception('OCR 引擎初始化失败，请确保设备已下载中文语言包且内存充足');
+        throw Exception(
+            'OCR 引擎初始化失败，请确保设备已下载中文语言包且内存充足');
       }
       rethrow;
     } finally {
@@ -401,7 +326,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
     }
   }
 
-  // ------------------- UI -------------------
+  // ───── UI ─────
 
   @override
   Widget build(BuildContext context) {
@@ -409,7 +334,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('新建库存移动记录'),
+        title: const Text('新建出库单'),
       ),
       body: Stack(
         children: [
@@ -421,137 +346,14 @@ class _AddRecordPageState extends State<AddRecordPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // ───── 目标仓库确认 ─────
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.warehouse,
-                                  color: Theme.of(context).colorScheme.primary),
-                              const SizedBox(width: 8),
-                              Text(
-                                '目标仓库',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          if (!hasWarehouse)
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.orange.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.orange.shade200),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.warning_amber_rounded,
-                                      color: Colors.orange.shade800),
-                                  const SizedBox(width: 8),
-                                  const Expanded(
-                                    child: Text(
-                                      '当前没有可用仓库，请先在主页添加仓库后再录入记录。',
-                                      style: TextStyle(fontSize: 13),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          else
-                            DropdownButtonFormField<String>(
-                              initialValue: _selectedWarehouseId,
-                              decoration: const InputDecoration(
-                                labelText: '选择仓库',
-                                border: OutlineInputBorder(),
-                                contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 14),
-                              ),
-                              items: _warehouses.map((w) {
-                                return DropdownMenuItem(
-                                  value: w.id,
-                                  child: Text(w.name),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                setState(() => _selectedWarehouseId = value);
-                              },
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return '请选择目标仓库';
-                                }
-                                return null;
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  _buildWarehouseCard(hasWarehouse),
                   const SizedBox(height: 16),
 
-                  // ───── 入库/出库切换开关 ─────
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      child: Row(
-                        children: [
-                          Icon(Icons.swap_horiz,
-                              color: Theme.of(context).colorScheme.primary),
-                          const SizedBox(width: 8),
-                          Text(
-                            '操作类型',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          ),
-                          const Spacer(),
-                          SegmentedButton<MovementType>(
-                            segments: const [
-                              ButtonSegment(
-                                value: MovementType.inbound,
-                                label: Text('入库'),
-                                icon: Icon(Icons.arrow_downward, size: 18),
-                              ),
-                              ButtonSegment(
-                                value: MovementType.outbound,
-                                label: Text('出库'),
-                                icon: Icon(Icons.arrow_upward, size: 18),
-                              ),
-                            ],
-                            selected: {_selectedType},
-                            onSelectionChanged: (set) {
-                              setState(() => _selectedType = set.first);
-                            },
-                            style: SegmentedButton.styleFrom(
-                              selectedBackgroundColor:
-                                  _selectedType == MovementType.inbound
-                                      ? Colors.green.shade100
-                                      : Colors.red.shade100,
-                              selectedForegroundColor:
-                                  _selectedType == MovementType.inbound
-                                      ? Colors.green.shade900
-                                      : Colors.red.shade900,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  // ───── 入库/出库切换 ─────
+                  _buildTypeCard(),
                   const SizedBox(height: 16),
 
-                  // ───── 识别方式选择 ─────
+                  // ───── 识别方式 ─────
                   Row(
                     children: [
                       Expanded(
@@ -583,14 +385,12 @@ class _AddRecordPageState extends State<AddRecordPage> {
                   ),
                   const SizedBox(height: 20),
 
-                  // ───── 表单字段 ─────
-
-                  // 交易对象
+                  // ───── 交易对象 ─────
                   TextFormField(
                     controller: _partnerController,
                     decoration: const InputDecoration(
                       labelText: '交易对象',
-                      hintText: '如：某某超市、供应商 A',
+                      hintText: '如：某某工厂、客户 A',
                       prefixIcon: Icon(Icons.business),
                       border: OutlineInputBorder(),
                     ),
@@ -604,17 +404,17 @@ class _AddRecordPageState extends State<AddRecordPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // 品名 + 送货人（同一行）
+                  // ───── 颜色 + 品种 ─────
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: TextFormField(
-                          controller: _productNameController,
+                          controller: _colorController,
                           decoration: const InputDecoration(
-                            labelText: '品名',
-                            hintText: '如：钢材、布料',
-                            prefixIcon: Icon(Icons.category_outlined),
+                            labelText: '颜色',
+                            hintText: '如：白、黑、灰',
+                            prefixIcon: Icon(Icons.color_lens_outlined),
                             border: OutlineInputBorder(),
                           ),
                           textInputAction: TextInputAction.next,
@@ -623,11 +423,11 @@ class _AddRecordPageState extends State<AddRecordPage> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: TextFormField(
-                          controller: _deliveryPersonController,
+                          controller: _varietyController,
                           decoration: const InputDecoration(
-                            labelText: '送货人',
-                            hintText: '如：张三',
-                            prefixIcon: Icon(Icons.person_outline),
+                            labelText: '品种',
+                            hintText: '如：涤纶、羊毛、棉',
+                            prefixIcon: Icon(Icons.grass_outlined),
                             border: OutlineInputBorder(),
                           ),
                           textInputAction: TextInputAction.next,
@@ -637,18 +437,33 @@ class _AddRecordPageState extends State<AddRecordPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // 净重(kg) / 数量 + 单价(元/吨)
+                  // ───── 送货人 ─────
+                  TextFormField(
+                    controller: _deliveryPersonController,
+                    decoration: const InputDecoration(
+                      labelText: '送货人',
+                      hintText: '如：张三',
+                      prefixIcon: Icon(Icons.person_outline),
+                      border: OutlineInputBorder(),
+                    ),
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ───── 毛重 + 扣皮 ─────
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // 毛重（带极速连录按钮）
                       Expanded(
                         flex: 5,
                         child: TextFormField(
-                          controller: _quantityController,
+                          controller: _grossWeightController,
                           decoration: InputDecoration(
-                            labelText: '净重(kg) / 数量',
-                            hintText: '支持 146+92+131',
-                            prefixIcon: const Icon(Icons.scale_outlined),
+                            labelText: '毛重(kg)',
+                            hintText: '地磅读数',
+                            prefixIcon:
+                                const Icon(Icons.fitness_center_outlined),
                             border: const OutlineInputBorder(),
                             suffixIcon: TextButton.icon(
                               onPressed: _showRapidEntrySheet,
@@ -662,17 +477,75 @@ class _AddRecordPageState extends State<AddRecordPage> {
                               ),
                             ),
                           ),
-                          keyboardType:
-                              const TextInputType.numberWithOptions(decimal: true),
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
                           textInputAction: TextInputAction.next,
-                          onFieldSubmitted: _onQuantitySubmitted,
+                          onChanged: (_) => setState(() {}),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
-                              return '请输入净重';
+                              return '请输入毛重';
                             }
-                            final parsed = _evaluateExpression(value.trim());
-                            if (parsed == null || parsed <= 0) {
-                              return '请输入正数';
+                            if (double.tryParse(value.trim()) == null) {
+                              return '请输入数字';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // 扣皮
+                      Expanded(
+                        flex: 3,
+                        child: TextFormField(
+                          controller: _tareWeightController,
+                          decoration: const InputDecoration(
+                            labelText: '扣皮(kg)',
+                            hintText: '去皮',
+                            prefixIcon:
+                                Icon(Icons.remove_circle_outline),
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          textInputAction: TextInputAction.next,
+                          onChanged: (_) => setState(() {}),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return null; // 可选，默认 0
+                            }
+                            if (double.tryParse(value.trim()) == null) {
+                              return '请输入数字';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ───── 总件数 + 单价 ─────
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _totalPiecesController,
+                          decoration: const InputDecoration(
+                            labelText: '总件数',
+                            hintText: '如：5',
+                            prefixIcon:
+                                Icon(Icons.inventory_2_outlined),
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.number,
+                          textInputAction: TextInputAction.next,
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return null;
+                            }
+                            if (int.tryParse(value.trim()) == null) {
+                              return '请输入整数';
                             }
                             return null;
                           },
@@ -688,67 +561,13 @@ class _AddRecordPageState extends State<AddRecordPage> {
                             prefixIcon: Icon(Icons.attach_money),
                             border: OutlineInputBorder(),
                           ),
-                          keyboardType:
-                              const TextInputType.numberWithOptions(decimal: true),
-                          textInputAction: TextInputAction.next,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          textInputAction: TextInputAction.done,
+                          onChanged: (_) => setState(() {}),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
                               return '请输入单价';
-                            }
-                            final number = double.tryParse(value.trim());
-                            if (number == null || number < 0) {
-                              return '请输入有效金额';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // 总件数 + 毛重(kg)
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _totalPiecesController,
-                          decoration: const InputDecoration(
-                            labelText: '总件数',
-                            hintText: '如：5',
-                            prefixIcon: Icon(Icons.inventory_2_outlined),
-                            border: OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.number,
-                          textInputAction: TextInputAction.next,
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return null; // 可选
-                            }
-                            if (int.tryParse(value.trim()) == null) {
-                              return '请输入整数';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _grossWeightController,
-                          decoration: const InputDecoration(
-                            labelText: '毛重(kg)',
-                            hintText: '如：1520.5',
-                            prefixIcon: Icon(Icons.fitness_center_outlined),
-                            border: OutlineInputBorder(),
-                          ),
-                          keyboardType:
-                              const TextInputType.numberWithOptions(decimal: true),
-                          textInputAction: TextInputAction.next,
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return null; // 可选
                             }
                             if (double.tryParse(value.trim()) == null) {
                               return '请输入数字';
@@ -761,74 +580,93 @@ class _AddRecordPageState extends State<AddRecordPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // 扣皮(kg)
-                  TextFormField(
-                    controller: _tareWeightController,
-                    decoration: const InputDecoration(
-                      labelText: '扣皮(kg)',
-                      hintText: '如：20.0',
-                      prefixIcon: Icon(Icons.remove_circle_outline),
-                      border: OutlineInputBorder(),
+                  // ───── 净重展示（大字，只读） ─────
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.blue.shade200),
                     ),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    textInputAction: TextInputAction.done,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return null; // 可选
-                      }
-                      if (double.tryParse(value.trim()) == null) {
-                        return '请输入数字';
-                      }
-                      return null;
-                    },
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.scale,
+                                color: Colors.blue.shade800, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              '净重（毛重 - 扣皮）',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.blue.shade800,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        AnimatedBuilder(
+                          animation: Listenable.merge([
+                            _grossWeightController,
+                            _tareWeightController,
+                          ]),
+                          builder: (_, __) {
+                            return Text(
+                              '${_currentNetWeight.toStringAsFixed(2)} kg',
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue.shade900,
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
 
-                  // 动态总金额
-                  ValueListenableBuilder(
-                    valueListenable: _quantityController,
-                    builder: (_, __, ___) => ValueListenableBuilder(
-                      valueListenable: _unitPriceController,
-                      builder: (_, __, ___) {
-                        final qty =
-                            double.tryParse(_quantityController.text.trim()) ?? 0;
-                        final price =
-                            double.tryParse(_unitPriceController.text.trim()) ?? 0;
-                        // 公式：(净重 kg / 1000) * 单价(元/吨) = 总金额(元)
-                        final total = (qty / 1000) * price;
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.teal.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.teal.shade200),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                '总金额',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.teal,
-                                ),
+                  // ───── 总金额展示 ─────
+                  AnimatedBuilder(
+                    animation: Listenable.merge([
+                      _grossWeightController,
+                      _tareWeightController,
+                      _unitPriceController,
+                    ]),
+                    builder: (_, __) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.teal.shade200),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              '总金额',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.teal,
                               ),
-                              Text(
-                                '¥${total.toStringAsFixed(2)}',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.teal,
-                                ),
+                            ),
+                            Text(
+                              '¥${_currentTotalAmount.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.teal,
                               ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 28),
 
@@ -847,7 +685,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
                             ),
                           )
                         : const Icon(Icons.save),
-                    label: Text(_isSaving ? '保存中…' : '保存记录'),
+                    label: Text(_isSaving ? '保存中…' : '保存单据'),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
@@ -883,10 +721,143 @@ class _AddRecordPageState extends State<AddRecordPage> {
       ),
     );
   }
+
+  // ───── 仓库选择卡片 ─────
+  Widget _buildWarehouseCard(bool hasWarehouse) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.warehouse,
+                    color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  '目标仓库',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (!hasWarehouse)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded,
+                        color: Colors.orange.shade800),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        '当前没有可用仓库，请先在主页添加仓库后再录入记录。',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              DropdownButtonFormField<String>(
+                initialValue: _selectedWarehouseId,
+                decoration: const InputDecoration(
+                  labelText: '选择仓库',
+                  border: OutlineInputBorder(),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                ),
+                items: _warehouses.map((w) {
+                  return DropdownMenuItem(
+                    value: w.id,
+                    child: Text(w.name),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() => _selectedWarehouseId = value);
+                },
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return '请选择目标仓库';
+                  }
+                  return null;
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ───── 操作类型卡片 ─────
+  Widget _buildTypeCard() {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Icon(Icons.swap_horiz,
+                color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 8),
+            Text(
+              '操作类型',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const Spacer(),
+            SegmentedButton<MovementType>(
+              segments: const [
+                ButtonSegment(
+                  value: MovementType.inbound,
+                  label: Text('入库'),
+                  icon: Icon(Icons.arrow_downward, size: 18),
+                ),
+                ButtonSegment(
+                  value: MovementType.outbound,
+                  label: Text('出库'),
+                  icon: Icon(Icons.arrow_upward, size: 18),
+                ),
+              ],
+              selected: {_selectedType},
+              onSelectionChanged: (set) {
+                setState(() => _selectedType = set.first);
+              },
+              style: SegmentedButton.styleFrom(
+                selectedBackgroundColor:
+                    _selectedType == MovementType.inbound
+                        ? Colors.green.shade100
+                        : Colors.red.shade100,
+                selectedForegroundColor:
+                    _selectedType == MovementType.inbound
+                        ? Colors.green.shade900
+                        : Colors.red.shade900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ───────────────────────────────────────────────
-// 相机预览弹窗（独立 StatefulWidget，正确管理生命周期）
+// 相机预览弹窗
 // ───────────────────────────────────────────────
 
 class _CameraPreviewDialog extends StatefulWidget {
@@ -916,9 +887,8 @@ class _CameraPreviewDialogState extends State<_CameraPreviewDialog> {
           (c) => c.lensDirection == CameraLensDirection.back,
           orElse: () => widget.cameras.first,
         ),
-        // 使用 medium 分辨率以减少内存占用，避免低端设备闪退
         ResolutionPreset.medium,
-        enableAudio: false, // 不启用音频，避免申请麦克风权限
+        enableAudio: false,
       );
 
       _controller = controller;
@@ -960,13 +930,13 @@ class _CameraPreviewDialogState extends State<_CameraPreviewDialog> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 相机预览或加载/错误状态
           if (_error != null)
             Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                  const Icon(Icons.error_outline,
+                      color: Colors.red, size: 48),
                   const SizedBox(height: 12),
                   Text(
                     '相机初始化失败\n$_error',
@@ -981,17 +951,16 @@ class _CameraPreviewDialogState extends State<_CameraPreviewDialog> {
           else
             const Center(child: CircularProgressIndicator()),
 
-          // 顶部关闭按钮
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
             left: 16,
             child: IconButton(
-              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+              icon: const Icon(Icons.close,
+                  color: Colors.white, size: 28),
               onPressed: () => Navigator.of(context).pop(),
             ),
           ),
 
-          // 底部拍照按钮
           if (_isReady)
             Positioned(
               bottom: 40,
@@ -1001,7 +970,8 @@ class _CameraPreviewDialogState extends State<_CameraPreviewDialog> {
                 child: FloatingActionButton.large(
                   backgroundColor: Colors.white,
                   onPressed: _takePicture,
-                  child: const Icon(Icons.camera, color: Colors.black, size: 36),
+                  child: const Icon(Icons.camera,
+                      color: Colors.black, size: 36),
                 ),
               ),
             ),
@@ -1021,7 +991,7 @@ class _OcrResult {
 }
 
 // ───────────────────────────────────────────────
-// 极速连录 BottomSheet
+// 极速连录 BottomSheet（用于连续录入多个毛重）
 // ───────────────────────────────────────────────
 
 /// 极速连录结果
@@ -1032,7 +1002,7 @@ class _RapidEntryResult {
   const _RapidEntryResult({required this.totalWeight, required this.count});
 }
 
-/// 自定义数字键盘 BottomSheet，用于连续录入大量重量数据
+/// 自定义数字键盘 BottomSheet
 class _RapidEntryBottomSheet extends StatefulWidget {
   const _RapidEntryBottomSheet();
 
@@ -1042,20 +1012,15 @@ class _RapidEntryBottomSheet extends StatefulWidget {
 }
 
 class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
-  /// 已录入的重量列表
   final List<double> _weights = [];
-
-  /// 当前输入的数字字符串
   String _input = '';
 
   double get _totalWeight =>
       _weights.fold(0.0, (sum, w) => sum + w);
 
-  /// 追加数字或小数点
   void _onKeyPressed(String key) {
     setState(() {
       if (key == '.') {
-        // 只能有一个小数点
         if (!_input.contains('.')) {
           _input = _input.isEmpty ? '0.' : '$_input.';
         }
@@ -1065,7 +1030,6 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
     });
   }
 
-  /// 退格
   void _onBackspace() {
     setState(() {
       if (_input.isNotEmpty) {
@@ -1074,7 +1038,6 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
     });
   }
 
-  /// 下一笔：将当前输入加入列表
   void _onNext() {
     final value = double.tryParse(_input);
     if (value == null || value <= 0) {
@@ -1089,9 +1052,7 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
     });
   }
 
-  /// 完成：返回结果
   void _onDone() {
-    // 如果输入框还有未提交的内容，先自动提交
     if (_input.isNotEmpty) {
       final value = double.tryParse(_input);
       if (value != null && value > 0) {
@@ -1110,7 +1071,6 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
     );
   }
 
-  /// 删除某一项
   void _onDeleteItem(int index) {
     setState(() {
       _weights.removeAt(index);
@@ -1123,7 +1083,6 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
     final media = MediaQuery.of(context);
 
     return Container(
-      // 占据屏幕 85% 高度，留一点顶部空间方便手势关闭
       height: media.size.height * 0.85,
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -1132,7 +1091,6 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
       child: SafeArea(
         child: Column(
           children: [
-            // ── 顶部抓手 ──
             Container(
               margin: const EdgeInsets.only(top: 8, bottom: 4),
               width: 40,
@@ -1142,17 +1100,16 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-
-            // ── 标题 ──
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
                   const Icon(Icons.speed, color: Colors.teal),
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
-                      '极速连录',
+                      '极速连录 — 毛重',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -1167,11 +1124,10 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                 ],
               ),
             ),
-
-            // ── 总计栏 ──
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.teal.shade50,
                 borderRadius: BorderRadius.circular(12),
@@ -1198,16 +1154,13 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                 ],
               ),
             ),
-
             const SizedBox(height: 8),
-
-            // ── 已录入列表 ──
             Expanded(
               flex: 2,
               child: _weights.isEmpty
                   ? Center(
                       child: Text(
-                        '点击下方数字键盘录入重量',
+                        '点击下方数字键盘录入毛重',
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey.shade500,
@@ -1215,11 +1168,13 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                       ),
                     )
                   : Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 16),
                       child: Wrap(
                         spacing: 8,
                         runSpacing: 8,
-                        children: _weights.asMap().entries.map((entry) {
+                        children:
+                            _weights.asMap().entries.map((entry) {
                           final idx = entry.key;
                           final weight = entry.value;
                           return Chip(
@@ -1237,7 +1192,8 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                               '${weight.toStringAsFixed(2)} kg',
                               style: const TextStyle(fontSize: 14),
                             ),
-                            deleteIcon: const Icon(Icons.close, size: 18),
+                            deleteIcon:
+                                const Icon(Icons.close, size: 18),
                             onDeleted: () => _onDeleteItem(idx),
                             backgroundColor: Colors.grey.shade100,
                           );
@@ -1245,11 +1201,11 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                       ),
                     ),
             ),
-
-            // ── 当前输入显示 ──
             Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              margin: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(12),
@@ -1272,15 +1228,12 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                 ],
               ),
             ),
-
-            // ── 数字键盘 ──
             Expanded(
               flex: 3,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   children: [
-                    // 左侧数字区
                     Expanded(
                       flex: 3,
                       child: GridView.count(
@@ -1299,7 +1252,6 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // 右侧操作区
                     Expanded(
                       flex: 1,
                       child: Column(
@@ -1310,13 +1262,16 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.orange,
                                 foregroundColor: Colors.white,
-                                minimumSize: const Size.fromHeight(0),
+                                minimumSize:
+                                    const Size.fromHeight(0),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius:
+                                      BorderRadius.circular(12),
                                 ),
                               ),
                               child: const Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.add, size: 28),
                                   SizedBox(height: 4),
@@ -1332,13 +1287,16 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                               onPressed: _onDone,
                               style: FilledButton.styleFrom(
                                 backgroundColor: Colors.teal,
-                                minimumSize: const Size.fromHeight(0),
+                                minimumSize:
+                                    const Size.fromHeight(0),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius:
+                                      BorderRadius.circular(12),
                                 ),
                               ),
                               child: const Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.check, size: 28),
                                   SizedBox(height: 4),
@@ -1355,7 +1313,6 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                 ),
               ),
             ),
-
             const SizedBox(height: 8),
           ],
         ),
@@ -1363,7 +1320,6 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
     );
   }
 
-  /// 单个数字按键
   Widget _buildKeyButton(String label, {VoidCallback? onPressed}) {
     return Material(
       color: Colors.grey.shade200,
@@ -1377,7 +1333,9 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
             style: TextStyle(
               fontSize: label == '⌫' ? 22 : 26,
               fontWeight: FontWeight.w500,
-              color: label == '⌫' ? Colors.red.shade700 : Colors.black87,
+              color: label == '⌫'
+                  ? Colors.red.shade700
+                  : Colors.black87,
             ),
           ),
         ),

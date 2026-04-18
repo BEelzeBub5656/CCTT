@@ -8,10 +8,16 @@ enum SyncStatus { pending, synced }
 /// - [outbound]: 出库（减少库存）
 enum MovementType { inbound, outbound }
 
-/// 库存移动记录模型（原 TransactionRecord 的升级版）
+/// 库存移动记录模型（毛纺厂专用版）
 ///
-/// 对应 SQLite 表 `stock_movements`。
-/// 新增字段用于支持「毛厂出库单」业务需求。
+/// 对应 SQLite 表 `stock_movements`（v4）。
+///
+/// 计重逻辑：
+/// - [grossWeight] = 毛重（地磅读数）
+/// - [tareWeight]  = 扣皮（去皮、容器重量）
+/// - [quantity]    = 净重（kg），理论上等于 grossWeight - tareWeight
+/// - [unitPrice]   = 单价（元/吨）
+/// - [totalAmount] = (quantity / 1000) * unitPrice
 class StockMovement {
   /// 全局唯一标识符（UUID v4）
   final String id;
@@ -28,28 +34,34 @@ class StockMovement {
   /// 移动类型：入库或出库
   final MovementType type;
 
-  /// 净重（单位：kg），对应旧版 quantity 字段
+  /// 净重（单位：kg）
+  /// 由 毛重 - 扣皮 计算得出，也可直接录入
   final double quantity;
 
-  /// 单价（人民币，单位：元）
+  /// 单价（人民币，单位：元/吨）
   final double unitPrice;
 
   /// 同步状态
   final SyncStatus syncStatus;
 
-  // ───── 毛厂出库单扩展字段（v3 新增，nullable 兼容旧数据） ─────
+  // ───── 毛纺厂核心字段（v4） ─────
 
-  /// 品名
-  final String? productName;
+  /// 颜色
+  final String color;
+
+  /// 品种
+  final String variety;
+
+  /// 毛重（地磅读数，单位：kg）
+  final double grossWeight;
+
+  /// 扣皮（去皮重量，单位：kg）
+  final double tareWeight;
+
+  // ───── 其他辅助字段 ─────
 
   /// 总计件数
   final int? totalPieces;
-
-  /// 共计重（毛重，单位：kg）
-  final double? grossWeight;
-
-  /// 扣皮（去皮，单位：kg）
-  final double? tareWeight;
 
   /// 送货人
   final String? deliveryPerson;
@@ -63,15 +75,20 @@ class StockMovement {
     required this.quantity,
     required this.unitPrice,
     this.syncStatus = SyncStatus.pending,
-    this.productName,
+    this.color = '',
+    this.variety = '',
+    this.grossWeight = 0.0,
+    this.tareWeight = 0.0,
     this.totalPieces,
-    this.grossWeight,
-    this.tareWeight,
     this.deliveryPerson,
   }) : id = id ?? const Uuid().v4();
 
-  /// 计算总金额（净重 × 单价）
-  double get totalAmount => quantity * unitPrice;
+  /// 总金额（元）= (净重 kg / 1000) × 单价(元/吨)
+  double get totalAmount => (quantity / 1000) * unitPrice;
+
+  /// 根据毛重和扣皮计算出的净重
+  /// 可用于校验 [quantity] 是否一致
+  double get calculatedNetWeight => grossWeight - tareWeight;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -82,10 +99,11 @@ class StockMovement {
         'quantity': quantity,
         'unitPrice': unitPrice,
         'syncStatus': syncStatus.name,
-        'productName': productName,
-        'totalPieces': totalPieces,
+        'color': color,
+        'variety': variety,
         'grossWeight': grossWeight,
         'tareWeight': tareWeight,
+        'totalPieces': totalPieces,
         'deliveryPerson': deliveryPerson,
       };
 
@@ -98,14 +116,11 @@ class StockMovement {
         quantity: (json['quantity'] as num).toDouble(),
         unitPrice: (json['unitPrice'] as num).toDouble(),
         syncStatus: SyncStatus.values.byName(json['syncStatus'] as String),
-        productName: json['productName'] as String?,
+        color: (json['color'] as String?) ?? '',
+        variety: (json['variety'] as String?) ?? '',
+        grossWeight: (json['grossWeight'] as num?)?.toDouble() ?? 0.0,
+        tareWeight: (json['tareWeight'] as num?)?.toDouble() ?? 0.0,
         totalPieces: json['totalPieces'] as int?,
-        grossWeight: json['grossWeight'] != null
-            ? (json['grossWeight'] as num).toDouble()
-            : null,
-        tareWeight: json['tareWeight'] != null
-            ? (json['tareWeight'] as num).toDouble()
-            : null,
         deliveryPerson: json['deliveryPerson'] as String?,
       );
 
@@ -118,10 +133,11 @@ class StockMovement {
     double? quantity,
     double? unitPrice,
     SyncStatus? syncStatus,
-    String? productName,
-    int? totalPieces,
+    String? color,
+    String? variety,
     double? grossWeight,
     double? tareWeight,
+    int? totalPieces,
     String? deliveryPerson,
   }) =>
       StockMovement(
@@ -133,10 +149,11 @@ class StockMovement {
         quantity: quantity ?? this.quantity,
         unitPrice: unitPrice ?? this.unitPrice,
         syncStatus: syncStatus ?? this.syncStatus,
-        productName: productName ?? this.productName,
-        totalPieces: totalPieces ?? this.totalPieces,
+        color: color ?? this.color,
+        variety: variety ?? this.variety,
         grossWeight: grossWeight ?? this.grossWeight,
         tareWeight: tareWeight ?? this.tareWeight,
+        totalPieces: totalPieces ?? this.totalPieces,
         deliveryPerson: deliveryPerson ?? this.deliveryPerson,
       );
 }

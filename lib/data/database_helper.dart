@@ -10,7 +10,7 @@ import '../models/warehouse.dart';
 /// 支持多仓库库存管理，严格遵循 Offline-First 原则。
 class DatabaseHelper {
   static const String _databaseName = 'cctt_database.db';
-  static const int _databaseVersion = 3; // v3: 新增毛厂出库单扩展字段
+  static const int _databaseVersion = 4; // v4: 拆分 productName → color + variety
 
   // 表名
   static const String _warehousesTable = 'warehouses';
@@ -50,7 +50,8 @@ class DatabaseHelper {
   /// 数据库升级
   ///
   /// - v1 → v2：旧版 transaction_records 表被重构为 stock_movements + warehouses
-  /// - v2 → v3：平滑添加毛厂出库单扩展字段（ALTER TABLE ADD COLUMN），保留全部旧数据
+  /// - v2 → v3：平滑添加毛厂出库单扩展字段（ALTER TABLE ADD COLUMN）
+  /// - v3 → v4：拆分 productName → color + variety，不丢失任何数据
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // 删除旧版 transaction_records 表（如有）
@@ -73,6 +74,16 @@ class DatabaseHelper {
       await db.execute(
           'ALTER TABLE $_movementsTable ADD COLUMN deliveryPerson TEXT');
     }
+
+    if (oldVersion < 4) {
+      // v3 → v4：新增 color / variety，productName 在模型层面废弃但数据库保留
+      // SQLite 的 ALTER TABLE 无法删除列，因此旧 productName 列继续存在但不使用。
+      // 新增列必须带 DEFAULT 值，以兼容现有行。
+      await db.execute(
+          "ALTER TABLE $_movementsTable ADD COLUMN color TEXT NOT NULL DEFAULT ''");
+      await db.execute(
+          "ALTER TABLE $_movementsTable ADD COLUMN variety TEXT NOT NULL DEFAULT ''");
+    }
   }
 
   /// 创建仓库表
@@ -85,7 +96,7 @@ class DatabaseHelper {
     ''');
   }
 
-  /// 创建库存移动记录表（v3，含毛厂出库单扩展字段）
+  /// 创建库存移动记录表（v4，毛纺厂专用字段）
   Future<void> _createStockMovementsTable(Database db) async {
     await db.execute('''
       CREATE TABLE $_movementsTable (
@@ -97,10 +108,11 @@ class DatabaseHelper {
         quantity REAL NOT NULL,
         unitPrice REAL NOT NULL,
         syncStatus TEXT NOT NULL,
-        productName TEXT,
-        totalPieces INTEGER,
+        color TEXT NOT NULL DEFAULT '',
+        variety TEXT NOT NULL DEFAULT '',
         grossWeight REAL,
         tareWeight REAL,
+        totalPieces INTEGER,
         deliveryPerson TEXT,
         FOREIGN KEY (warehouseId) REFERENCES $_warehousesTable(id)
           ON DELETE RESTRICT
