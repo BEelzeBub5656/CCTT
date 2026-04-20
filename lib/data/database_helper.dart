@@ -226,6 +226,17 @@ class DatabaseHelper {
     );
   }
 
+  /// 更新一条库存移动记录（按 id 匹配）
+  Future<int> updateMovement(StockMovement movement) async {
+    final db = await database;
+    return await db.update(
+      _movementsTable,
+      movement.toJson(),
+      where: 'id = ?',
+      whereArgs: [movement.id],
+    );
+  }
+
   /// 批量更新多条记录的同步状态
   ///
   /// 使用 SQLite [Batch] 减少事务往返，提升批量更新性能。

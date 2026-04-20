@@ -8,13 +8,17 @@ import '../data/database_helper.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 
-/// 新建库存移动记录页面（毛纺厂专用版）
+/// 新建/修改库存移动记录页面（毛纺厂专用版）
 ///
 /// 核心计重逻辑：
 ///   净重 = 毛重(grossWeight) - 扣皮(tareWeight)
 ///   总金额 = (净重 kg / 1000) × 单价(元/吨)
+///
+/// 传入 [record] 时进入编辑模式，保存时执行 update 而非 insert。
 class AddRecordPage extends StatefulWidget {
-  const AddRecordPage({super.key});
+  final StockMovement? record;
+
+  const AddRecordPage({super.key, this.record});
 
   @override
   State<AddRecordPage> createState() => _AddRecordPageState();
@@ -38,10 +42,33 @@ class _AddRecordPageState extends State<AddRecordPage> {
   bool _isSaving = false;
   bool _isScanning = false;
 
+  /// 编辑模式标志
+  bool get _isEditing => widget.record != null;
+
   @override
   void initState() {
     super.initState();
-    _loadWarehouses();
+    _loadWarehouses().then((_) => _preFillIfEditing());
+  }
+
+  /// 编辑模式下预填表单
+  void _preFillIfEditing() {
+    final record = widget.record;
+    if (record == null) return;
+
+    _partnerController.text = record.partnerName;
+    _colorController.text = record.color;
+    _varietyController.text = record.variety;
+    _deliveryPersonController.text = record.deliveryPerson ?? '';
+    _grossWeightController.text = record.grossWeight.toStringAsFixed(2);
+    _tareWeightController.text = record.tareWeight.toStringAsFixed(2);
+    _totalPiecesController.text = record.totalPieces?.toString() ?? '';
+    _unitPriceController.text = record.unitPrice.toStringAsFixed(2);
+
+    setState(() {
+      _selectedType = record.type;
+      _selectedWarehouseId = record.warehouseId;
+    });
   }
 
   Future<void> _loadWarehouses() async {
@@ -118,13 +145,16 @@ class _AddRecordPageState extends State<AddRecordPage> {
           : int.tryParse(_totalPiecesController.text.trim());
 
       final record = StockMovement(
-        timestamp: DateTime.now().millisecondsSinceEpoch,
+        id: _isEditing ? widget.record!.id : '',
+        timestamp: _isEditing
+            ? widget.record!.timestamp
+            : DateTime.now().millisecondsSinceEpoch,
         partnerName: _partnerController.text.trim(),
         warehouseId: _selectedWarehouseId!,
         type: _selectedType,
         quantity: netWeight,
         unitPrice: priceValue,
-        syncStatus: SyncStatus.pending,
+        syncStatus: _isEditing ? widget.record!.syncStatus : SyncStatus.pending,
         color: _colorController.text.trim(),
         variety: _varietyController.text.trim(),
         grossWeight: grossWeight,
@@ -135,7 +165,11 @@ class _AddRecordPageState extends State<AddRecordPage> {
             : _deliveryPersonController.text.trim(),
       );
 
-      await DatabaseHelper.instance.insertMovement(record);
+      if (_isEditing) {
+        await DatabaseHelper.instance.updateMovement(record);
+      } else {
+        await DatabaseHelper.instance.insertMovement(record);
+      }
 
       if (mounted) {
         setState(() => _isSaving = false);
@@ -334,7 +368,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('新建出库单'),
+        title: Text(_isEditing ? '修改记录' : '新建出库单'),
       ),
       body: Stack(
         children: [

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -8,6 +9,7 @@ import '../services/settings_service.dart';
 import '../services/sync_service.dart';
 import 'add_record_page.dart';
 import 'record_detail_page.dart';
+import 'settings_page.dart';
 
 /// 主页面
 ///
@@ -26,6 +28,9 @@ class _HomePageState extends State<HomePage> {
 
   /// null 表示「所有仓库」
   String? _selectedWarehouseId;
+
+  /// 长按计时器
+  Timer? _longPressTimer;
 
   @override
   void initState() {
@@ -58,6 +63,40 @@ class _HomePageState extends State<HomePage> {
   /// 下拉刷新
   Future<void> _onRefresh() async {
     await _loadData();
+  }
+
+  /// 从云端拉取 retain 全量快照（带全屏 Loading）
+  Future<void> _pullSnapshot() async {
+    if (!mounted) return;
+
+    // 显示全屏 Loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: Center(child: CircularProgressIndicator()),
+      ),
+    );
+
+    final result = await SyncService.pullSnapshot();
+
+    // 关闭 Loading
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+    // 刷新页面
+    await _loadData();
+
+    // 提示结果
+    if (mounted) {
+      final isSuccess = result.contains('成功');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result),
+          backgroundColor: isSuccess ? Colors.green : Colors.red,
+        ),
+      );
+    }
   }
 
   /// 手动同步（先变蓝、再变绿的视觉反馈）
@@ -159,77 +198,57 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  /// 设置 PC 接收端地址弹窗
-  Future<void> _showSettingsDialog() async {
-    final savedUrl = await SettingsService.getServerBaseUrl() ?? '';
-    final controller = TextEditingController(text: savedUrl);
+  @override
+  void dispose() {
+    _longPressTimer?.cancel();
+    super.dispose();
+  }
 
-    if (!mounted) return;
+  /// 启动长按计时器
+  void _startLongPress(StockMovement record, double durationSeconds) {
+    _longPressTimer?.cancel();
+    _longPressTimer = Timer(
+      Duration(milliseconds: (durationSeconds * 1000).toInt()),
+      () => _showEditConfirmDialog(record),
+    );
+  }
 
-    await showDialog<void>(
+  /// 取消长按计时器
+  void _cancelLongPress() {
+    _longPressTimer?.cancel();
+    _longPressTimer = null;
+  }
+
+  /// 长按确认修改对话框
+  Future<void> _showEditConfirmDialog(StockMovement record) async {
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('设置 PC 接收端地址'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: '后端地址',
-              hintText: '例如：http://100.x.x.x:3000',
-              prefixIcon: Icon(Icons.link),
-              border: OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.url,
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => Navigator.of(dialogContext).pop(),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('修改记录'),
+        content: const Text('是否要修改此条记录？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final url = controller.text.trim();
-                if (url.isEmpty) {
-                  if (dialogContext.mounted) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      const SnackBar(content: Text('地址不能为空')),
-                    );
-                  }
-                  return;
-                }
-                if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                  if (dialogContext.mounted) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      const SnackBar(
-                        content: Text('地址必须以 http:// 或 https:// 开头'),
-                      ),
-                    );
-                  }
-                  return;
-                }
-                await SettingsService.setServerBaseUrl(url);
-                if (!dialogContext.mounted) return;
-                Navigator.of(dialogContext).pop();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('后端地址已保存')),
-                  );
-                }
-              },
-              child: const Text('保存'),
-            ),
-          ],
-        );
-      },
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('确认修改'),
+          ),
+        ],
+      ),
     );
 
-    // 延迟到 dialog 完全关闭后再 dispose controller
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      controller.dispose();
-    });
+    if (confirmed == true && mounted) {
+      final result = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => AddRecordPage(record: record),
+        ),
+      );
+      if (result == true) {
+        await _loadData();
+      }
+    }
   }
 
   /// 创建默认仓库（空状态快捷入口）
@@ -275,14 +294,21 @@ class _HomePageState extends State<HomePage> {
             onPressed: _syncRecords,
           ),
           IconButton(
+            icon: const Icon(Icons.cloud_download),
+            tooltip: '从云端拉取快照',
+            onPressed: _pullSnapshot,
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: '刷新列表',
             onPressed: _onRefresh,
           ),
           IconButton(
             icon: const Icon(Icons.settings),
-            tooltip: '设置',
-            onPressed: _showSettingsDialog,
+            tooltip: '设置中心',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SettingsPage()),
+            ),
           ),
         ],
       ),
@@ -457,19 +483,29 @@ class _HomePageState extends State<HomePage> {
         ? '${record.color}${record.color.isNotEmpty && record.variety.isNotEmpty ? ' / ' : ''}${record.variety}'
         : record.partnerName;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: ListTile(
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => RecordDetailPage(
-                record: record,
-                warehouseName: _warehouseName(record.warehouseId),
-              ),
+    return GestureDetector(
+      onTapDown: (_) async {
+        final duration = await SettingsService.getLongPressDuration();
+        if (!mounted) return;
+        _startLongPress(record, duration);
+      },
+      onTapUp: (_) => _cancelLongPress(),
+      onTapCancel: () => _cancelLongPress(),
+      onTap: () {
+        _cancelLongPress();
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => RecordDetailPage(
+              record: record,
+              warehouseName: _warehouseName(record.warehouseId),
             ),
-          );
-        },
+          ),
+        );
+      },
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: ListTile(
+          onTap: null, // 由 GestureDetector 处理
         leading: CircleAvatar(
           backgroundColor: record.syncStatus == SyncStatus.synced
               ? Colors.green.shade100
@@ -534,6 +570,7 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         trailing: _buildSyncStatusBadge(record.syncStatus),
+        ),
       ),
     );
   }
