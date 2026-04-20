@@ -43,6 +43,7 @@ pending ──点击同步──► syncing ──MQTT Publish──► synced�
 
 - 只要 `syncStatus != synced`，统统抓取重试，防止中断卡在 `syncing`
 - `toJson()` 转换在 try-catch 内部执行，转换崩溃也会把状态复位为 `failed`
+- **异常安全**: `client.disconnect()` 在 `finally` 中无条件调用，任何异常（断网、超时、broker 不可用）都会正确释放连接
 - 同步过程不阻断 UI，SnackBar 提示 + 列表实时刷新
 
 ## MQTT 消息格式
@@ -59,30 +60,33 @@ pending ──点击同步──► syncing ──MQTT Publish──► synced�
 
 ### 消息 Payload
 
-JSON 数组，每条记录为 `StockMovement.toJson()`：
-
 ```json
-[
-  {
-    "id": "uuid-string",
-    "timestamp": 1713331200000,
-    "partnerName": "张三纺织",
-    "warehouseId": "warehouse-uuid",
-    "type": "outbound",
-    "quantity": 1523.50,
-    "unitPrice": 8500.00,
-    "syncStatus": "pending",
-    "color": "白色",
-    "variety": "羊毛",
-    "totalPieces": 12,
-    "grossWeight": 1550.00,
-    "tareWeight": 26.50,
-    "deliveryPerson": "李四"
-  }
-]
+{
+  "records": [
+    {
+      "id": "uuid-string",
+      "timestamp": 1713331200000,
+      "partnerName": "张三纺织",
+      "warehouseId": "warehouse-uuid",
+      "type": "outbound",
+      "quantity": 1523.50,
+      "unitPrice": 8500.00,
+      "syncStatus": "pending",
+      "color": "白色",
+      "variety": "羊毛",
+      "totalPieces": 12,
+      "grossWeight": 1550.00,
+      "tareWeight": 26.50,
+      "deliveryPerson": "李四"
+    }
+  ],
+  "warehouses": [
+    { "id": "wh-uuid", "name": "主仓库" }
+  ]
+}
 ```
 
-> PC 后端订阅 `cctt/sync/inbound` 即可接收数据。
+> PC 后端订阅 `cctt/sync/inbound` 即可接收数据。同步时打包**全量仓库列表**，确保快照恢复时不会丢失未关联待同步记录的仓库。
 
 ## 构建
 
@@ -115,6 +119,7 @@ lib/
 
 | 提交 | 说明 |
 |------|------|
+| `291899c` | **v0.7+**: 快照同步、设置中心、长按编辑、仓库管理 |
 | `3c99050` | **v0.7**: Dio → MQTT over TLS 迁移 |
 | `f1412b1` | **v0.5**: 统一四色同步状态标签，修复 syncing 卡死问题 |
 | `d96c945` | 全面 UI 重构：颜色/品种拆分、毛重扣皮联动 |

@@ -79,10 +79,13 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    final result = await SyncService.pullSnapshot();
-
-    // 关闭 Loading
-    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    String result;
+    try {
+      result = await SyncService.pullSnapshot();
+    } finally {
+      // 无论成功还是失败，必须关闭 Loading，防止界面锁死
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
 
     // 刷新页面
     await _loadData();

@@ -39,6 +39,9 @@ CCTT（库存管理 App）是面向**毛纺厂出入库场景**的离线优先 F
 - ClientId: `const Uuid().v4()` 随机生成
 - 抓取条件：`syncStatus == pending || syncStatus == failed`
 - `toJson()` 转换必须在 try-catch 内部，崩溃时状态复位为 `failed`
+- **异常安全**: `client.disconnect()` 必须在 `finally` 中调用；`MqttServerClient? client` 声明为 nullable，确保即使构造函数异常也不会 NPE
+- **`pullSnapshot` 超时**: `updates.first.timeout(Duration(seconds: 3))`，防止云端无 retain 消息时永远挂起
+- **全量仓库**: `syncPendingRecords` 打包 `warehouses` 时必须传全量列表（`getAllWarehouses()`），不能只传关联仓库
 
 ## 文件清单
 
@@ -50,11 +53,12 @@ lib/
 │   ├── stock_movement.dart       # SyncStatus 枚举: pending, syncing, synced, failed
 │   └── warehouse.dart
 ├── pages/
-│   ├── home_page.dart            # 主列表、同步按钮、筛选
-│   ├── add_record_page.dart      # 新建单据（毛重扣皮联动）
-│   └── record_detail_page.dart   # 单据详情（统一状态标签）
+│   ├── home_page.dart            # 主列表、同步按钮、筛选、长按编辑
+│   ├── add_record_page.dart      # 新建/编辑单据（毛重扣皮联动）
+│   ├── record_detail_page.dart   # 单据详情（统一状态标签）
+│   └── settings_page.dart        # MQTT 配置 + 长按时间设置
 ├── services/
-│   ├── sync_service.dart         # MQTT 同步引擎
+│   ├── sync_service.dart         # MQTT 同步引擎（异常安全）
 │   └── settings_service.dart     # SharedPreferences 封装
 └── main.dart
 ```
@@ -62,3 +66,12 @@ lib/
 ## 已知问题
 
 - **真机 OCR 闪退**: PHB110（Android 16）点击拍照/相册瞬间崩溃。已尝试独立 StatefulWidget 生命周期、`ResolutionPreset.medium`、权限显式申请、全局 try-catch，均无效。根因待通过 `adb logcat` 排查 native crash。
+
+## 已修复问题
+
+| 问题 | 修复方案 |
+|------|----------|
+| MQTT `updates.first` 无 timeout 挂起 | 设为 3 秒超时，超时后 throw Exception |
+| `client.disconnect()` 泄漏 | 全部移到 `finally` 块，`client` 声明为 nullable |
+| Loading Dialog 异常后未关闭 | `try-finally` 包裹 `SyncService.pullSnapshot()` |
+| 同步只打包关联仓库 | 改为 `getAllWarehouses()` 全量打包 |
