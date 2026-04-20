@@ -1,21 +1,31 @@
-import 'package:dio/dio.dart';
+import 'dart:convert';
+import 'package:mqtt_client/mqtt_client.dart';
+import 'package:mqtt_client/mqtt_server_client.dart';
+import 'package:uuid/uuid.dart';
+
 import '../data/database_helper.dart';
 import '../models/stock_movement.dart';
-import 'settings_service.dart';
 
+/// MQTT 同步服务
+///
+/// 负责将本地 [SyncStatus.pending] / [SyncStatus.failed] 的库存移动记录
+/// 通过 MQTT over TLS 发布到 EMQX Broker。
 class SyncService {
-  static Future<String> syncPendingRecords() async {
-    final baseUrl = await SettingsService.getServerBaseUrl();
-    if (baseUrl == null || baseUrl.isEmpty) {
-      return '请先点击右上角设置后端 API 地址';
-    }
+  static const _broker = 'kf33d077.ala.cn-hangzhou.emqxsl.cn';
+  static const _port = 8883;
+  static const _username = 'BEelzeBub';
+  static const _password = '20050805jycPP';
+  static const _topic = 'cctt/sync/inbound';
 
+  static Future<String> syncPendingRecords() async {
     final dbHelper = DatabaseHelper.instance;
     final allRecords = await dbHelper.getAllMovements();
 
-    // 只要不是"已同步"，统统抓取出来重试（防止卡在 syncing/failed 状态）
+    // 抓取 pending 或 failed 的记录（防止任何非 synced 状态卡住）
     final pendingRecords = allRecords
-        .where((r) => r.syncStatus != SyncStatus.synced)
+        .where((r) =>
+            r.syncStatus == SyncStatus.pending ||
+            r.syncStatus == SyncStatus.failed)
         .toList();
 
     if (pendingRecords.isEmpty) {
@@ -24,40 +34,52 @@ class SyncService {
 
     final ids = pendingRecords.map((e) => e.id).toList();
 
-    // 发送前，先将数据库状态更新为 "正在同步"
+    // 1. 标记为 syncing
     await dbHelper.updateSyncStatus(ids, SyncStatus.syncing);
 
-    final dio = Dio(BaseOptions(
-      baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 15),
-    ));
+    // 2. 初始化 MQTT 客户端
+    final clientId = const Uuid().v4();
+    final client = MqttServerClient(_broker, clientId);
+    client.port = _port;
+    client.secure = true;
+    client.setProtocolV311();
+    client.logging(on: false);
 
     try {
-      // 数据转换移入 try-catch，防止转换报错导致状态未复位
-      final payload = pendingRecords.map((e) => e.toJson()).toList();
-      final response = await dio.post('/api/sync', data: payload);
+      // 3. 连接 MQTT
+      await client.connect(_username, _password);
 
-      if (response.statusCode == 200) {
-        // 成功后，更新为 "已同步"
-        await dbHelper.updateSyncStatus(ids, SyncStatus.synced);
-        return '成功同步 ${pendingRecords.length} 条记录';
-      } else {
-        // HTTP 状态码错误
+      if (client.connectionStatus?.state != MqttConnectionState.connected) {
         await dbHelper.updateSyncStatus(ids, SyncStatus.failed);
-        return '服务器返回异常代码: ${response.statusCode}';
+        client.disconnect();
+        return 'MQTT 连接失败: ${client.connectionStatus?.returnCode}';
       }
-    } on DioException catch (e) {
-      await dbHelper.updateSyncStatus(ids, SyncStatus.failed);
-      if (e.type == DioExceptionType.connectionTimeout ||
-          e.type == DioExceptionType.receiveTimeout) {
-        return '连接超时，请检查网络或 Tailscale/Pinggy 状态';
-      }
-      return '网络请求异常: ${e.message}';
+
+      // 4. 转换为 JSON 字符串
+      final payload = jsonEncode(
+        pendingRecords.map((e) => e.toJson()).toList(),
+      );
+
+      // 5. 发布到主题，QoS = 1 (At least once)
+      final builder = MqttClientPayloadBuilder();
+      builder.addString(payload);
+      client.publishMessage(
+        _topic,
+        MqttQos.atLeastOnce,
+        builder.payload!,
+      );
+
+      // 6. 立刻断开连接
+      client.disconnect();
+
+      // 7. 标记为 synced
+      await dbHelper.updateSyncStatus(ids, SyncStatus.synced);
+      return '成功同步 ${pendingRecords.length} 条记录';
     } catch (e) {
-      // 如果代码本身有 Bug，会在这里被抓出并显示！
+      // 异常回滚：状态复位为 failed
       await dbHelper.updateSyncStatus(ids, SyncStatus.failed);
-      return '本地代码执行崩溃: $e';
+      client.disconnect();
+      return e.toString();
     }
   }
 }

@@ -2,7 +2,14 @@
 
 ## 项目背景
 
-CCTT（库存管理 App）是面向**毛纺厂出入库场景**的离线优先 Flutter 应用。核心场景：仓库管理员在地磅旁用手机录入毛重/扣皮/颜色/品种等字段，数据先本地 SQLite 暂存，再通过局域网/Tailscale 推送到 PC 后端。
+CCTT（库存管理 App）是面向**毛纺厂出入库场景**的离线优先 Flutter 应用。核心场景：仓库管理员在地磅旁用手机录入毛重/扣皮/颜色/品种等字段，数据先本地 SQLite 暂存，再通过 MQTT over TLS 推送到 PC 后端。
+
+## 版本对照
+
+| 版本 | 同步协议 | 关键提交 |
+|------|----------|----------|
+| v0.7 | **MQTT over TLS** | `3c99050` |
+| v0.5 | Dio HTTP POST | `f1412b1` |
 
 ## 技术约束
 
@@ -25,11 +32,13 @@ CCTT（库存管理 App）是面向**毛纺厂出入库场景**的离线优先 F
 - Dialog 中的 `TextEditingController` 必须在 `WidgetsBinding.instance.addPostFrameCallback` 中 dispose
 - 状态标签统一使用 `_buildSyncStatusBadge(SyncStatus)`，四色：🟠pending / 🔵syncing / 🟢synced / 🔴failed
 
-### 同步层
+### 同步层（v0.7 MQTT）
 - `SyncService.syncPendingRecords()` 是 **static** 方法，返回 `String`
-- 抓取条件：`syncStatus != SyncStatus.synced`（防止任何状态卡住）
+- Broker: `kf33d077.ala.cn-hangzhou.emqxsl.cn:8883`（TLS）
+- Topic: `cctt/sync/inbound`，QoS 1
+- ClientId: `const Uuid().v4()` 随机生成
+- 抓取条件：`syncStatus == pending || syncStatus == failed`
 - `toJson()` 转换必须在 try-catch 内部，崩溃时状态复位为 `failed`
-- 超时统一 15 秒
 
 ## 文件清单
 
@@ -41,21 +50,14 @@ lib/
 │   ├── stock_movement.dart       # SyncStatus 枚举: pending, syncing, synced, failed
 │   └── warehouse.dart
 ├── pages/
-│   ├── home_page.dart            # 主列表、同步按钮、筛选、设置弹窗
+│   ├── home_page.dart            # 主列表、同步按钮、筛选
 │   ├── add_record_page.dart      # 新建单据（毛重扣皮联动）
 │   └── record_detail_page.dart   # 单据详情（统一状态标签）
 ├── services/
-│   ├── sync_service.dart         # Dio P2P 同步引擎
+│   ├── sync_service.dart         # MQTT 同步引擎
 │   └── settings_service.dart     # SharedPreferences 封装
 └── main.dart
 ```
-
-## 同步 API 契约
-
-- **Endpoint**: `POST $baseUrl/api/sync`
-- **Request Body**: `List<Map<String, dynamic>>`（`StockMovement.toJson()` 数组）
-- **Success**: HTTP 200，App 将记录标记为 `synced`
-- **Timeout**: 15s connect + 15s receive
 
 ## 已知问题
 
