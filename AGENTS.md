@@ -40,7 +40,7 @@ CCTT（库存管理 App）是面向**毛纺厂出入库场景**的离线优先 F
 - 抓取条件：`syncStatus == pending || syncStatus == failed`
 - `toJson()` 转换必须在 try-catch 内部，崩溃时状态复位为 `failed`
 - **异常安全**: `client.disconnect()` 必须在 `finally` 中调用；`MqttServerClient? client` 声明为 nullable，确保即使构造函数异常也不会 NPE
-- **`pullSnapshot` 超时**: `updates.first.timeout(Duration(seconds: 3))`，防止云端无 retain 消息时永远挂起
+- **`pullSnapshot` 超时**: `updates.first.timeout(Duration(seconds: 5))`，防止云端无 retain 消息时永远挂起；超时后在 UI 层以 AlertDialog 弹窗提示
 - **全量仓库**: `syncPendingRecords` 打包 `warehouses` 时必须传全量列表（`getAllWarehouses()`），不能只传关联仓库
 
 ## 文件清单

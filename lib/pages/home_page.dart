@@ -90,9 +90,30 @@ class _HomePageState extends State<HomePage> {
     // 刷新页面
     await _loadData();
 
-    // 提示结果
-    if (mounted) {
-      final isSuccess = result.contains('成功');
+    if (!mounted) return;
+
+    final isSuccess = result.contains('成功');
+    final isTimeout = result.contains('超时') || result.contains('尚未生成快照');
+
+    // 超时场景弹窗提示，其他场景用 SnackBar
+    if (isTimeout) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('拉取快照失败'),
+          content: const Text(
+            '云端尚未发布 retain 快照，或网络连接超时。\n\n'
+            '请确认 PC 后端已推送快照后重试。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('知道了'),
+            ),
+          ],
+        ),
+      );
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result),
@@ -142,7 +163,9 @@ class _HomePageState extends State<HomePage> {
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const AddRecordPage()),
     );
-    if (result == true) {
+    if (result == true && mounted) {
+      // 重置筛选器为「所有仓库」，防止新记录被当前过滤器隐藏
+      setState(() => _selectedWarehouseId = null);
       await _loadData();
     }
   }
@@ -249,6 +272,8 @@ class _HomePageState extends State<HomePage> {
         ),
       );
       if (result == true) {
+        // 重置筛选器为「所有仓库」，防止修改后的记录被当前过滤器隐藏
+        setState(() => _selectedWarehouseId = null);
         await _loadData();
       }
     }

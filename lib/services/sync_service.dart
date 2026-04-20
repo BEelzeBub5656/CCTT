@@ -124,9 +124,9 @@ class SyncService {
         throw Exception('MQTT updates stream 不可用');
       }
 
-      // 3 秒超时：云端如果没有 retain 快照，必须立刻失败而不是永远挂起
+      // 5 秒超时：云端如果没有 retain 快照，必须立刻失败而不是永远挂起
       final messages = await updates.first.timeout(
-        const Duration(seconds: 3),
+        const Duration(seconds: 5),
         onTimeout: () => throw Exception(
           '云端尚未生成快照，或网络超时',
         ),
