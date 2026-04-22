@@ -8,6 +8,7 @@ import '../models/warehouse.dart';
 import '../services/settings_service.dart';
 import '../services/sync_service.dart';
 import 'add_record_page.dart';
+import 'edit_record_page.dart';
 import 'record_detail_page.dart';
 import 'settings_page.dart';
 
@@ -268,7 +269,7 @@ class _HomePageState extends State<HomePage> {
     if (confirmed == true && mounted) {
       final result = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
-          builder: (_) => AddRecordPage(record: record),
+          builder: (_) => EditRecordPage(record: record),
         ),
       );
       if (result == true) {
@@ -505,11 +506,24 @@ class _HomePageState extends State<HomePage> {
   /// 单条记录卡片
   Widget _buildMovementCard(StockMovement record) {
     final isInbound = record.type == MovementType.inbound;
+    final isDeleted = record.isDeleted;
 
     // 主标题：颜色 + 品种
     final displayTitle = record.color.isNotEmpty || record.variety.isNotEmpty
         ? '${record.color}${record.color.isNotEmpty && record.variety.isNotEmpty ? ' / ' : ''}${record.variety}'
         : record.partnerName;
+
+    // 软删除样式
+    final titleStyle = TextStyle(
+      fontWeight: FontWeight.w600,
+      decoration: isDeleted ? TextDecoration.lineThrough : null,
+      color: isDeleted ? Colors.grey.shade500 : null,
+    );
+    final subtitleStyle = TextStyle(
+      fontSize: 12,
+      color: isDeleted ? Colors.grey.shade400 : Colors.grey.shade700,
+      decoration: isDeleted ? TextDecoration.lineThrough : null,
+    );
 
     return GestureDetector(
       onTapDown: (_) async {
@@ -532,72 +546,92 @@ class _HomePageState extends State<HomePage> {
       },
       child: Card(
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        color: isDeleted ? Colors.grey.shade50 : null,
         child: ListTile(
           onTap: null, // 由 GestureDetector 处理
-        leading: CircleAvatar(
-          backgroundColor: record.syncStatus == SyncStatus.synced
-              ? Colors.green.shade100
-              : Colors.orange.shade100,
-          child: Icon(
-            record.syncStatus == SyncStatus.synced
-                ? Icons.check_circle
-                : Icons.sync,
-            color: record.syncStatus == SyncStatus.synced
-                ? Colors.green.shade800
-                : Colors.orange.shade800,
+          leading: CircleAvatar(
+            backgroundColor: record.syncStatus == SyncStatus.synced
+                ? Colors.green.shade100
+                : Colors.orange.shade100,
+            child: Icon(
+              record.syncStatus == SyncStatus.synced
+                  ? Icons.check_circle
+                  : Icons.sync,
+              color: record.syncStatus == SyncStatus.synced
+                  ? Colors.green.shade800
+                  : Colors.orange.shade800,
+            ),
           ),
-        ),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: isInbound
-                    ? Colors.green.shade50
-                    : Colors.red.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: isInbound ? Colors.green : Colors.red,
-                ),
-              ),
-              child: Text(
-                isInbound ? '入库' : '出库',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
                   color: isInbound
-                      ? Colors.green.shade800
-                      : Colors.red.shade800,
+                      ? Colors.green.shade50
+                      : Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isInbound ? Colors.green : Colors.red,
+                  ),
+                ),
+                child: Text(
+                  isInbound ? '入库' : '出库',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: isInbound
+                        ? Colors.green.shade800
+                        : Colors.red.shade800,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                displayTitle,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-                overflow: TextOverflow.ellipsis,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  displayTitle,
+                  style: titleStyle,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-            ),
-          ],
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 4),
-            Text(
-              '${_warehouseName(record.warehouseId)}  •  ${_formatTimestamp(record.timestamp)}',
-            ),
-            Text(
-              '净重 ${record.quantity.toStringAsFixed(2)} kg  |  单价 ¥${record.unitPrice.toStringAsFixed(2)}/吨',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade700,
+              if (isDeleted)
+                Container(
+                  margin: const EdgeInsets.only(left: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.red, width: 1.5),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    '已作废',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 4),
+              Text(
+                '${_warehouseName(record.warehouseId)}  •  ${_formatTimestamp(record.timestamp)}',
+                style: TextStyle(
+                  color: isDeleted ? Colors.grey.shade400 : null,
+                  decoration: isDeleted ? TextDecoration.lineThrough : null,
+                ),
               ),
-            ),
-          ],
-        ),
-        trailing: _buildSyncStatusBadge(record.syncStatus),
+              Text(
+                '净重 ${record.quantity.toStringAsFixed(2)} kg  |  单价 ¥${record.unitPrice.toStringAsFixed(2)}/吨',
+                style: subtitleStyle,
+              ),
+            ],
+          ),
+          trailing: _buildSyncStatusBadge(record.syncStatus),
         ),
       ),
     );

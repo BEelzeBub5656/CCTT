@@ -99,9 +99,10 @@ class SyncService {
 
   /// 从云端拉取 retain 全量快照并写入本地数据库
   ///
-  /// 解析 JSON 后，先写入 warehouses（replace 自动覆盖），再写入 records。
+  /// 解析 JSON 时，所有字段均有绝对安全的空检查，
+  /// 防止 `type 'Null' is not a subtype of type '...'` 运行时崩溃。
   ///
-  /// **异常安全原则**：监听 updates 设 3 秒超时，任何异常都在 finally 中 disconnect。
+  /// **异常安全原则**：监听 updates 设 5 秒超时，任何异常都在 finally 中 disconnect。
   static Future<String> pullSnapshot() async {
     final dbHelper = DatabaseHelper.instance;
     MqttServerClient? client;
@@ -136,30 +137,35 @@ class SyncService {
       final pubMess = recMess.payload as MqttPublishMessage;
       final payloadString = utf8.decode(pubMess.payload.message);
 
-      final jsonMap = jsonDecode(payloadString) as Map<String, dynamic>;
+      // 绝对安全的 JSON 解析，防止 Null is not a subtype 崩溃
+      final Map<String, dynamic> data =
+          jsonDecode(payloadString) as Map<String, dynamic>;
+      final List<dynamic> recordsList = data['records'] as List<dynamic>? ?? [];
+      final List<dynamic> warehousesList =
+          data['warehouses'] as List<dynamic>? ?? [];
 
       // 1. 先写入 warehouses
-      final warehouseList = jsonMap['warehouses'] as List<dynamic>?;
-      if (warehouseList != null) {
-        for (final e in warehouseList) {
-          final wh = Warehouse.fromJson(e as Map<String, dynamic>);
+      if (warehousesList.isNotEmpty) {
+        for (final e in warehousesList) {
+          if (e is! Map<String, dynamic>) continue;
+          final wh = Warehouse.fromJson(e);
           await dbHelper.insertWarehouse(wh);
         }
       }
 
       // 2. 再写入 records
-      final recordList = jsonMap['records'] as List<dynamic>?;
       int count = 0;
-      if (recordList != null) {
-        for (final e in recordList) {
-          final record = StockMovement.fromJson(e as Map<String, dynamic>);
+      if (recordsList.isNotEmpty) {
+        for (final e in recordsList) {
+          if (e is! Map<String, dynamic>) continue;
+          final record = StockMovement.fromJson(e);
           await dbHelper.insertMovement(record);
           count++;
         }
       }
 
       client.unsubscribe(_snapshotTopic);
-      return '成功从云端恢复 $count 条记录（含 ${warehouseList?.length ?? 0} 个仓库）';
+      return '成功从云端恢复 $count 条记录（含 ${warehousesList.length} 个仓库）';
     } catch (e) {
       return '拉取快照失败: $e';
     } finally {

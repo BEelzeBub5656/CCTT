@@ -10,7 +10,7 @@ import '../models/warehouse.dart';
 /// 支持多仓库库存管理，严格遵循 Offline-First 原则。
 class DatabaseHelper {
   static const String _databaseName = 'cctt_database.db';
-  static const int _databaseVersion = 4; // v4: 拆分 productName → color + variety
+  static const int _databaseVersion = 5; // v5: 新增 isDeleted 软删除字段
 
   // 表名
   static const String _warehousesTable = 'warehouses';
@@ -52,6 +52,7 @@ class DatabaseHelper {
   /// - v1 → v2：旧版 transaction_records 表被重构为 stock_movements + warehouses
   /// - v2 → v3：平滑添加毛厂出库单扩展字段（ALTER TABLE ADD COLUMN）
   /// - v3 → v4：拆分 productName → color + variety，不丢失任何数据
+  /// - v4 → v5：新增 isDeleted 软删除字段（INTEGER DEFAULT 0）
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // 删除旧版 transaction_records 表（如有）
@@ -84,6 +85,12 @@ class DatabaseHelper {
       await db.execute(
           "ALTER TABLE $_movementsTable ADD COLUMN variety TEXT NOT NULL DEFAULT ''");
     }
+
+    if (oldVersion < 5) {
+      // v4 → v5：新增 isDeleted 软删除字段
+      await db.execute(
+          'ALTER TABLE $_movementsTable ADD COLUMN isDeleted INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   /// 创建仓库表
@@ -96,7 +103,7 @@ class DatabaseHelper {
     ''');
   }
 
-  /// 创建库存移动记录表（v4，毛纺厂专用字段）
+  /// 创建库存移动记录表（v5，新增 isDeleted 软删除）
   Future<void> _createStockMovementsTable(Database db) async {
     await db.execute('''
       CREATE TABLE $_movementsTable (
@@ -114,6 +121,7 @@ class DatabaseHelper {
         tareWeight REAL,
         totalPieces INTEGER,
         deliveryPerson TEXT,
+        isDeleted INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (warehouseId) REFERENCES $_warehousesTable(id)
           ON DELETE RESTRICT
       )
@@ -181,7 +189,7 @@ class DatabaseHelper {
     );
   }
 
-  /// 查询所有记录（按时间倒序）
+  /// 查询所有记录（按时间倒序），返回包含已删除记录，由 UI 层根据 isDeleted 渲染
   Future<List<StockMovement>> getAllMovements() async {
     final db = await database;
     final maps = await db.query(
@@ -203,7 +211,7 @@ class DatabaseHelper {
     return maps.map((m) => StockMovement.fromJson(m)).toList();
   }
 
-  /// 查询所有待同步的记录（pending + syncing，用于批量同步）
+  /// 查询所有待同步的记录（pending + syncing + 已删除的也需要同步到 PC 端），用于批量同步
   Future<List<StockMovement>> getPendingMovements() async {
     final db = await database;
     final maps = await db.query(

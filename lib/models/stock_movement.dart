@@ -1,14 +1,11 @@
 import 'package:uuid/uuid.dart';
 
 enum MovementType { inbound, outbound }
-// 扩充为 4 种精确的业务状态
 enum SyncStatus { pending, syncing, synced, failed }
-
-  // ... 下面的代码保持原样不要动 ...
 
 /// 库存移动记录模型（毛纺厂专用版）
 ///
-/// 对应 SQLite 表 `stock_movements`（v4）。
+/// 对应 SQLite 表 `stock_movements`（v5）。
 ///
 /// 计重逻辑：
 /// - [grossWeight] = 毛重（地磅读数）
@@ -16,6 +13,10 @@ enum SyncStatus { pending, syncing, synced, failed }
 /// - [quantity]    = 净重（kg），理论上等于 grossWeight - tareWeight
 /// - [unitPrice]   = 单价（元/吨）
 /// - [totalAmount] = (quantity / 1000) * unitPrice
+///
+/// 软删除：
+/// - [isDeleted] = false 时正常显示
+/// - [isDeleted] = true  时列表中划线 + 灰字 + [已作废] 标签
 class StockMovement {
   /// 全局唯一标识符（UUID v4）
   final String id;
@@ -64,6 +65,9 @@ class StockMovement {
   /// 送货人
   final String? deliveryPerson;
 
+  /// 软删除标志（v5）
+  final bool isDeleted;
+
   StockMovement({
     String? id,
     required this.timestamp,
@@ -79,6 +83,7 @@ class StockMovement {
     this.tareWeight = 0.0,
     this.totalPieces,
     this.deliveryPerson,
+    this.isDeleted = false,
   }) : id = id ?? const Uuid().v4();
 
   /// 总金额（元）= (净重 kg / 1000) × 单价(元/吨)
@@ -103,23 +108,27 @@ class StockMovement {
         'tareWeight': tareWeight,
         'totalPieces': totalPieces,
         'deliveryPerson': deliveryPerson,
+        'isDeleted': isDeleted ? 1 : 0,
       };
 
+  /// 从 JSON/Map 解析，所有字段均有安全兜底，防止 `type 'Null' is not a subtype` 崩溃
   factory StockMovement.fromJson(Map<String, dynamic> json) => StockMovement(
-        id: json['id'] as String,
-        timestamp: json['timestamp'] as int,
-        partnerName: json['partnerName'] as String,
-        warehouseId: json['warehouseId'] as String,
-        type: MovementType.values.byName(json['type'] as String),
-        quantity: (json['quantity'] as num).toDouble(),
-        unitPrice: (json['unitPrice'] as num).toDouble(),
-        syncStatus: SyncStatus.values.byName(json['syncStatus'] as String),
+        id: (json['id'] as String?) ?? '',
+        timestamp: (json['timestamp'] as int?) ??
+            DateTime.now().millisecondsSinceEpoch,
+        partnerName: (json['partnerName'] as String?) ?? '',
+        warehouseId: (json['warehouseId'] as String?) ?? '',
+        type: _parseMovementType(json['type']),
+        quantity: (json['quantity'] as num?)?.toDouble() ?? 0.0,
+        unitPrice: (json['unitPrice'] as num?)?.toDouble() ?? 0.0,
+        syncStatus: _parseSyncStatus(json['syncStatus']),
         color: (json['color'] as String?) ?? '',
         variety: (json['variety'] as String?) ?? '',
         grossWeight: (json['grossWeight'] as num?)?.toDouble() ?? 0.0,
         tareWeight: (json['tareWeight'] as num?)?.toDouble() ?? 0.0,
         totalPieces: json['totalPieces'] as int?,
         deliveryPerson: json['deliveryPerson'] as String?,
+        isDeleted: (json['isDeleted'] as int?) == 1,
       );
 
   StockMovement copyWith({
@@ -137,6 +146,7 @@ class StockMovement {
     double? tareWeight,
     int? totalPieces,
     String? deliveryPerson,
+    bool? isDeleted,
   }) =>
       StockMovement(
         id: id ?? this.id,
@@ -153,5 +163,26 @@ class StockMovement {
         tareWeight: tareWeight ?? this.tareWeight,
         totalPieces: totalPieces ?? this.totalPieces,
         deliveryPerson: deliveryPerson ?? this.deliveryPerson,
+        isDeleted: isDeleted ?? this.isDeleted,
       );
+
+  // ───── 安全解析辅助 ─────
+
+  static MovementType _parseMovementType(dynamic value) {
+    if (value == null) return MovementType.outbound;
+    try {
+      return MovementType.values.byName(value as String);
+    } catch (_) {
+      return MovementType.outbound;
+    }
+  }
+
+  static SyncStatus _parseSyncStatus(dynamic value) {
+    if (value == null) return SyncStatus.pending;
+    try {
+      return SyncStatus.values.byName(value as String);
+    } catch (_) {
+      return SyncStatus.pending;
+    }
+  }
 }
