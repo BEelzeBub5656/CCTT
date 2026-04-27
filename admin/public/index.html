@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CCTT 库存管理系统</title>
+<link rel="stylesheet" href="/css/app.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+
+<!-- 顶部导航栏 -->
+<nav class="topnav" id="topnav">
+  <div class="topnav-brand">
+    <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="3" y="3" width="18" height="18" rx="3"/>
+      <path d="M3 9h18M9 3v18"/>
+    </svg>
+    <span class="brand-text">CCTT</span>
+    <span class="brand-sub">库存管理</span>
+  </div>
+  <div class="topnav-links">
+    <a href="#/dashboard" class="nav-link" data-route="dashboard">
+      <i class="fa-solid fa-chart-pie"></i> 仪表盘
+    </a>
+    <a href="#/movements" class="nav-link" data-route="movements">
+      <i class="fa-solid fa-arrow-right-arrow-left"></i> 出入库
+    </a>
+    <a href="#/warehouses" class="nav-link" data-route="warehouses">
+      <i class="fa-solid fa-warehouse"></i> 仓库
+    </a>
+    <a href="#/settings" class="nav-link" data-route="settings">
+      <i class="fa-solid fa-gear"></i> 同步
+    </a>
+  </div>
+  <div class="topnav-status">
+    <span class="mqtt-dot" id="mqttDot" title="MQTT 连接状态"></span>
+    <span class="mqtt-label" id="mqttLabel">检测中</span>
+  </div>
+</nav>
+
+<!-- 主内容区 -->
+<main class="main-content" id="mainContent">
+  <div class="page-loader"><div class="spinner"></div></div>
+</main>
+
+<!-- 模态框容器 -->
+<div class="modal-overlay" id="modalOverlay" hidden>
+  <div class="modal-dialog" id="modalDialog"></div>
+</div>
+
+<!-- Toast 容器 -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script type="module">
+// ── SPA 入口 ──
+import { router, navigate } from '/js/router.js';
+import { store } from '/js/state.js';
+import { api } from '/js/api.js';
+import { renderDashboard } from '/js/pages/dashboard.js';
+import { renderMovements } from '/js/pages/movements.js';
+import { renderMovementForm } from '/js/pages/movement-form.js';
+import { renderMovementDetail } from '/js/pages/movement-detail.js';
+import { renderWarehouses } from '/js/pages/warehouses.js';
+import { renderSettings } from '/js/pages/settings.js';
+
+// 路由注册
+router.on('#/dashboard', () => renderDashboard());
+router.on('#/movements', () => renderMovements());
+router.on('#/movements/new', () => renderMovementForm());
+router.on('#/movements/:id', (p) => renderMovementDetail(p.id));
+router.on('#/movements/:id/edit', (p) => renderMovementForm(p.id));
+router.on('#/warehouses', () => renderWarehouses());
+router.on('#/settings', () => renderSettings());
+
+// 导航高亮
+window.addEventListener('hashchange', () => {
+  const hash = location.hash || '#/dashboard';
+  document.querySelectorAll('.nav-link').forEach(a => {
+    a.classList.toggle('active', hash.startsWith(a.getAttribute('href').replace(/\/$/, '')));
+  });
+});
+
+// MQTT 状态轮询
+async function checkMqttStatus() {
+  try {
+    const status = await api.get('/api/sync/status');
+    const dot = document.getElementById('mqttDot');
+    const label = document.getElementById('mqttLabel');
+    if (status.connected) {
+      dot.className = 'mqtt-dot connected';
+      label.textContent = '已连接';
+    } else {
+      dot.className = 'mqtt-dot disconnected';
+      label.textContent = status.error || '未连接';
+    }
+  } catch (e) {
+    document.getElementById('mqttDot').className = 'mqtt-dot disconnected';
+    document.getElementById('mqttLabel').textContent = '离线';
+  }
+}
+
+// 初始化
+if (!location.hash) location.hash = '#/dashboard';
+router.start();
+checkMqttStatus();
+setInterval(checkMqttStatus, 30000);
+
+// 导出全局工具函数
+window.showToast = function(msg, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-' + type;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => { toast.classList.add('out'); setTimeout(() => toast.remove(), 300); }, 3500);
+};
+
+window.showModal = function(html) {
+  const overlay = document.getElementById('modalOverlay');
+  document.getElementById('modalDialog').innerHTML = html;
+  overlay.hidden = false;
+};
+
+window.closeModal = function() {
+  document.getElementById('modalOverlay').hidden = true;
+};
+
+document.getElementById('modalOverlay').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeModal();
+});
+</script>
+
+</body>
+</html>

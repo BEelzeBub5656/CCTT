@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>CCTT 项目开发记录</title>
+<style>
+body { font-family: "Microsoft YaHei", "微软雅黑", sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; line-height: 1.8; color: #333; }
+h1 { color: #1976d2; font-size: 28px; border-bottom: 3px solid #1976d2; padding-bottom: 10px; }
+h2 { color: #333; font-size: 20px; margin-top: 32px; border-left: 5px solid #1976d2; padding-left: 12px; }
+h3 { color: #555; font-size: 16px; margin-top: 24px; }
+.meta { color: #888; font-size: 13px; margin-bottom: 24px; }
+ul { margin: 8px 0; padding-left: 24px; }
+li { margin: 4px 0; }
+.todo { color: #c00000; font-weight: bold; }
+.risk { color: #c00000; }
+.done { color: #2e7d32; }
+.code { background: #f5f5f5; padding: 12px 16px; border-radius: 6px; font-family: Consolas, monospace; font-size: 13px; white-space: pre-wrap; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+th, td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; }
+th { background: #f0f0f0; font-weight: 600; }
+.star { color: #c00000; font-weight: bold; }
+.section { margin-bottom: 40px; }
+</style>
+</head>
+<body>
+
+<h1>CCTT 项目开发记录文档</h1>
+<div class="meta">
+文档生成日期：2026-04-27<br>
+项目名称：CCTT（离线优先个人库存管理 App + Web 管理后台）<br>
+技术栈：Flutter + Dart + SQLite + MQTT + Google ML Kit + Node.js + Express + better-sqlite3
+</div>
+
+<div class="section">
+<h2>一、项目概述</h2>
+<p>CCTT 是一款基于 Flutter 开发的离线优先（Offline-First）个人库存管理应用。核心理念是：所有交易数据首先存入本地 SQLite 数据库，仅在检测到后端 PC API 可达时，才将未同步数据批量推送。</p>
+<p>App 支持多仓库管理，通过摄像头拍摄发票或从相册选择照片，利用 Google ML Kit 进行本地离线 OCR 识别，并自动提取交易对象、数量和单价信息。</p>
+</div>
+
+<div class="section">
+<h2>二、开发历程与每次迭代记录</h2>
+
+<h3>2.1 第一阶段：项目初始化与依赖配置</h3>
+<p><strong>时间：</strong>2026-04-17 第一轮</p>
+<p><strong>新增文件：</strong></p>
+<ul>
+<li><code>pubspec.yaml</code> — 项目依赖清单</li>
+<li><code>lib/models/transaction_record.dart</code> — 交易记录数据模型（已废弃）</li>
+<li><code>lib/data/database_helper.dart</code> — SQLite 数据库单例辅助类</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>本地 SQLite 数据库的增、查、改操作</li>
+<li>TransactionRecord 不可变数据模型</li>
+</ul>
+
+<h3>2.2 第二阶段：UI 层与本地数据展示</h3>
+<p><strong>时间：</strong>2026-04-17 第二轮</p>
+<p><strong>新增文件：</strong></p>
+<ul>
+<li><code>lib/main.dart</code> — 应用入口</li>
+<li><code>lib/pages/home_page.dart</code> — 主页面（列表展示）</li>
+<li><code>lib/pages/add_record_page.dart</code> — 新建交易页面（手动表单）</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>全部历史记录列表展示（时间倒序）</li>
+<li>同步状态视觉区分（pending / synced）</li>
+<li>空状态提示、手动表单录入</li>
+<li>保存后自动返回并刷新主页列表</li>
+</ul>
+
+<h3>2.3 第三阶段：OCR 发票识别与自动填充</h3>
+<p><strong>时间：</strong>2026-04-17 第三轮</p>
+<p><strong>修改文件：</strong></p>
+<ul>
+<li><code>lib/pages/add_record_page.dart</code> — 新增 OCR 拍照识别功能</li>
+<li><code>android/app/src/main/AndroidManifest.xml</code> — 新增 CAMERA 权限</li>
+<li><code>ios/Runner/Info.plist</code> — 新增 NSCameraUsageDescription</li>
+<li><code>pubspec.yaml</code> — 新增 sqflite_common_ffi 依赖</li>
+<li><code>lib/main.dart</code> — 新增 sqflite_common_ffi 初始化逻辑</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>相机权限动态申请（Android / iOS）</li>
+<li>摄像头预览与拍照</li>
+<li>Google ML Kit 离线中文 OCR 文本识别</li>
+<li>正则提取交易对象和金额</li>
+<li>识别结果自动回填表单</li>
+</ul>
+
+<h3>2.4 第四阶段：P2P 网络同步机制</h3>
+<p><strong>时间：</strong>2026-04-17 第四轮</p>
+<p><strong>新增文件：</strong></p>
+<ul>
+<li><code>lib/services/sync_service.dart</code> — 同步服务类</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>批量查询本地 pending 记录</li>
+<li>向后端 POST /api/sync 推送 JSON 数组</li>
+<li>网络不可达检测（超时 / 连接错误）</li>
+<li>同步成功后批量更新本地 synced 状态</li>
+</ul>
+
+<h3>2.5 第五阶段：多仓库系统架构升级</h3>
+<p><strong>时间：</strong>2026-04-17 第五轮</p>
+<p><strong>新增文件：</strong></p>
+<ul>
+<li><code>lib/models/warehouse.dart</code> — 仓库模型（id UUID + name）</li>
+<li><code>lib/models/stock_movement.dart</code> — 库存移动记录模型（原 TransactionRecord 升级版）</li>
+</ul>
+<p><strong>修改文件：</strong></p>
+<ul>
+<li><code>lib/data/database_helper.dart</code> — 数据库版本 1 → 2，新增 warehouses 表和 stock_movements 表，含 onUpgrade 迁移</li>
+<li><code>lib/pages/home_page.dart</code> — 列表展示仓库名、入库/出库标签、数量×单价、总金额</li>
+<li><code>lib/pages/add_record_page.dart</code> — 表单新增仓库下拉选择、入库/出库 SegmentedButton、数量/单价输入框，动态计算总金额</li>
+<li><code>lib/services/sync_service.dart</code> — 引用从 TransactionRecord 迁移到 StockMovement</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>多仓库数据模型（Warehouse + StockMovement）</li>
+<li>库存移动类型区分（入库 / 出库）</li>
+<li>数量 × 单价 = 总金额计算</li>
+<li>数据库迁移机制（v1 → v2，onUpgrade）</li>
+<li>外键约束与索引优化</li>
+<li>OCR 识别数量与单价并自动回填</li>
+</ul>
+
+<h3>2.6 第六阶段：主页仓库筛选与添加仓库弹窗</h3>
+<p><strong>时间：</strong>2026-04-17 第六轮</p>
+<p><strong>修改文件：</strong></p>
+<ul>
+<li><code>lib/pages/home_page.dart</code> — 全面重构</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>主页顶部仓库筛选器（所有仓库 / 单仓库）</li>
+<li>按仓库实时过滤流水记录</li>
+<li>添加仓库弹窗（输入名称 → 存入数据库）</li>
+<li>空状态智能适配（全局空 / 单仓库空 / 无仓库）</li>
+</ul>
+
+<h3>2.7 第七阶段：AddRecordPage 表单优化</h3>
+<p><strong>时间：</strong>2026-04-17 第七轮</p>
+<p><strong>修改文件：</strong></p>
+<ul>
+<li><code>lib/pages/add_record_page.dart</code> — UI 全面优化</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>目标仓库强制确认（顶部 Card + 校验）</li>
+<li>入库/出库视觉区分（绿色/红色 SegmentedButton）</li>
+<li>数量 × 单价 实时计算总金额</li>
+<li>无仓库时禁用操作（防误操作）</li>
+</ul>
+
+<h3>2.8 第八阶段：真机测试与 Bug 修复（第一轮）</h3>
+<p><strong>时间：</strong>2026-04-17 第八轮</p>
+<p><strong>修复文件：</strong></p>
+<ul>
+<li><code>lib/pages/home_page.dart</code> — 修复 DropdownButton 红屏报错</li>
+<li><code>lib/pages/add_record_page.dart</code> — 新增表达式计算 + 重构相机预览</li>
+</ul>
+<p><strong>增删改详情：</strong></p>
+<ul>
+<li><strong>Bug 1：添加仓库后页面红屏</strong> — Flutter 3.19+ 中 DropdownButton 在 items 从空变为非空时，内部路由依赖关系未正确清理，触发 <code>_dependents.isEmpty</code> assert 失败。修复：给 DropdownButton 添加 <code>key: ValueKey(_warehouses.hashCode)</code> 强制重建；在所有 setState 调用前增加 mounted 检查。</li>
+<li><strong>Bug 2：数量输入不支持表达式</strong> — 用户反馈需要以千克为单位，支持 <code>146+92+131</code> 的输入方式。新增 <code>_evaluateExpression()</code> 方法，支持 +、-、*、/ 四则运算，在 <code>onEditingComplete</code> 和 <code>onTapOutside</code> 时自动计算并回填结果。数量标签改为 <strong>"数量(kg)"</strong>。</li>
+<li><strong>Bug 3：相机拍摄后闪退</strong> — <code>CameraController</code> 在 <code>showDialog</code> 的 builder 中初始化，但 dispose 由外部方法控制，弹窗关闭和 dispose 不同步，导致 <code>CameraException(Disposed CameraController)</code>。修复：将相机预览提取为独立的 <code>_CameraPreviewDialog</code> StatefulWidget，由它自己管理完整的生命周期（initState → initialize → dispose）。同时设置 <code>enableAudio: false</code>，避免申请麦克风权限。</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>数量表达式自动计算（如 146+92+131 → 369）</li>
+<li>相机预览生命周期正确管理（修复 disposed 异常，真机仍闪退待排查）</li>
+<li>仅申请相机权限，不再申请麦克风权限</li>
+</ul>
+
+<h3>2.9 第九阶段：真机测试与问题排查（第二轮）</h3>
+<p><strong>时间：</strong>2026-04-17 第九轮</p>
+<p><strong>修复文件：</strong></p>
+<ul>
+<li><code>lib/pages/add_record_page.dart</code> — 修复拍照闪退 + 表达式焦点切换卡住 + 新增相册识别</li>
+<li><code>lib/services/sync_service.dart</code> — 修复同步错误提示不明确</li>
+<li><code>pubspec.yaml</code> — 新增 image_picker 依赖</li>
+<li><code>android/app/src/main/AndroidManifest.xml</code> — 新增 READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE 权限</li>
+</ul>
+<p><strong>增删改详情：</strong></p>
+<ul>
+<li><strong>已知问题：真机点击拍照/相册识别按钮后 App 闪退</strong> — 在 PHB110（一加/OPPO，Android 16）真机上，无论是点击「拍照识别」还是「相册识别」按钮，App 都会瞬间闪退崩溃。先后尝试了以下措施，但问题<strong>仍未解决</strong>：① 将 <code>CameraController</code> 提取为独立 StatefulWidget 管理生命周期（修复 disposed 异常）；② 分辨率从 <code>ResolutionPreset.high</code> 降为 <code>ResolutionPreset.medium</code>；③ 增加 ML Kit 异常捕获；④ 在打开相册/相机前显式请求 <code>Permission.camera</code> 和 <code>Permission.photos</code>。根因可能涉及：<strong>Android 13+ 权限模型变化</strong>、<strong>image_picker 底层 Activity 生命周期异常</strong>、或 <strong>Google ML Kit 中文语言包未下载导致引擎初始化失败</strong>。需要进一步排查。</li>
+<li><strong>Bug 5：输入数量表达式后界面卡住</strong> — 用户在数量框输入 <code>123+45</code> 后不点回车，直接点击单价输入框。此时 <code>onTapOutside</code> 触发 <code>_onQuantityEditingComplete()</code>，该方法修改 <code>_quantityController.text</code> 并调用 <code>setState(() {})</code>，但焦点正在转移到单价输入框，导致 Flutter FocusNode 树进入不一致状态，界面无响应。更深层的问题是：<code>_saveRecord()</code> 中使用 <code>double.parse(_quantityController.text.trim())</code> 直接解析，若表达式未被提前计算（如仍为 "123+45"），会抛出 <code>FormatException</code>，而 <code>_saveRecord</code> 没有 try-catch，异常导致页面状态损坏但导航栈未恢复。<br><br>
+处理方式：① 去掉 <code>onTapOutside</code>，消除焦点切换竞态条件；② 将数量输入框的回调改为 <code>onFieldSubmitted</code>，仅在用户按回车/下一项时计算表达式；③ <code>_saveRecord()</code> 中不再使用 <code>double.parse</code> 直接解析数量，而是调用 <code>_evaluateExpression()</code> 安全计算，即使表达式未提前触发也能正确解析；④ <code>_saveRecord()</code> 整体包裹 try-catch，任何异常都会显示 SnackBar 而不是导致页面卡死。</li>
+<li><strong>Bug 6：同步显示"未知网络错误"</strong> — 点击主页右上角同步按钮时提示"同步失败：未知网络错误"。根因是 <code>SyncService._baseUrl = 'http://100.x.x.x:3000'</code> 为占位符地址，Dio 连接时抛出 <code>DioExceptionType.unknown</code>（底层为 <code>SocketException</code>），而原代码仅捕获了 connectionTimeout / receiveTimeout / connectionError / sendTimeout 四种类型，未处理 <code>unknown</code>，导致错误信息不友好。<br><br>
+处理方式：① 新增 <code>SyncResult.notConfigured()</code> 工厂方法；② 在 <code>syncPendingRecords()</code> 开头检测 <code>_baseUrl</code> 是否包含 <code>100.x.x.x</code> 占位符，若是则直接返回"后端地址未配置"提示；③ 在 <code>DioExceptionType.unknown</code> 分支中增加对 <code>SocketException</code>、<code>Connection refused</code>、<code>No route to host</code> 等常见错误的识别，返回"无法连接到 PC，请检查网络或后端是否运行"。</li>
+</ul>
+<p><strong>新增功能：</strong></p>
+<ul class="done">
+<li>相册选择识别 — 在"拍照识别"旁新增"相册识别"按钮（OutlinedButton），使用 <code>image_picker</code> 从系统相册选取照片，支持最大 1920×1920 压缩，复用同一套 OCR 识别逻辑</li>
+<li>OCR 识别来源区分 — 识别成功提示中标注"相机识别成功"或"相册识别成功"</li>
+<li>_saveRecord 异常保护 — 所有解析和数据库操作包裹 try-catch，异常时显示 SnackBar 并恢复按钮状态</li>
+</ul>
+</div>
+
+<h3>2.10 第十阶段：设置后端地址弹窗</h3>
+<p><strong>时间：</strong>2026-04-17 第十轮</p>
+<p><strong>修改文件：</strong></p>
+<ul>
+<li><code>pubspec.yaml</code> — 新增 <code>shared_preferences</code> 依赖</li>
+<li><code>lib/pages/home_page.dart</code> — AppBar 新增设置图标按钮 + <code>_showSettingsDialog()</code></li>
+<li><code>lib/services/sync_service.dart</code> — 移除硬编码 <code>_baseUrl</code>，改为从 SharedPreferences 动态读取</li>
+</ul>
+<p><strong>增删改详情：</strong></p>
+<ul>
+<li><strong>解决硬编码后端地址问题</strong> — 原 <code>SyncService</code> 中 <code>static const String _baseUrl = 'http://100.x.x.x:3000'</code> 为占位符，用户无法在 App 内修改。处理方式：① 引入 <code>shared_preferences</code>；② 主页 AppBar 右侧新增 <code>Icons.settings</code> 按钮，点击弹出 AlertDialog（标题"设置后端地址"）；③ 输入框默认值从 SharedPreferences 的 <code>server_base_url</code> key 读取；④ 用户输入纯 IP:port 时自动补全 <code>http://</code> 协议头；⑤ <code>SyncService</code> 每次同步前调用 <code>_resolveBaseUrl()</code> 读取最新配置；⑥ 未配置时提示"后端地址未配置，请在设置中配置 PC 地址"。</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>主页右上角设置按钮（⚙️）</li>
+<li>设置弹窗：输入后端地址并持久化到本地</li>
+<li>SyncService 动态读取地址，支持热更新</li>
+<li>自动补全 http:// 协议头</li>
+</ul>
+</div>
+
+<h3>2.11 第十一阶段：毛厂出库单模型扩展（数据库 v3）</h3>
+<p><strong>时间：</strong>2026-04-18 第十一轮</p>
+<p><strong>修改文件：</strong></p>
+<ul>
+<li><code>lib/models/stock_movement.dart</code> — 新增 5 个 nullable 字段</li>
+<li><code>lib/data/database_helper.dart</code> — _databaseVersion 升级到 3，建表语句加入新字段，_onUpgrade 增加 ALTER TABLE 迁移</li>
+</ul>
+<p><strong>增删改详情：</strong></p>
+<ul>
+<li><strong>业务需求</strong> — 为适配「毛厂出库单」场景，<code>StockMovement</code> 模型需要扩展。原有 <code>quantity</code> 字段语义保持不变，现在代表<strong>净重(kg)</strong>。新增字段：<br>
+① <code>productName</code>（String?）— 品名<br>
+② <code>totalPieces</code>（int?）— 总计件数<br>
+③ <code>grossWeight</code>（double?）— 共计重（毛重，kg）<br>
+④ <code>tareWeight</code>（double?）— 扣皮（去皮，kg）<br>
+⑤ <code>deliveryPerson</code>（String?）— 送货人<br><br>
+所有新字段均为 nullable，兼容旧数据（v2 表中的现有记录这些字段自动为 NULL）。<br><br>
+<strong>数据库迁移策略（v2 → v3）</strong>：使用 <code>ALTER TABLE stock_movements ADD COLUMN ...</code> 平滑添加 5 个新列，<strong>绝不 DROP 旧表</strong>，确保旧数据完整保留。<code>_onUpgrade</code> 中通过 <code>oldVersion &lt; 3</code> 条件判断执行迁移。</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>StockMovement 模型支持毛厂出库单全部字段</li>
+<li>数据库 v3 建表语句含新字段</li>
+<li>ALTER TABLE 平滑迁移，旧数据零丢失</li>
+<li>toJson / fromJson / copyWith 全面支持新字段</li>
+</ul>
+</div>
+
+<h3>2.12 第十二阶段：AddRecordPage 重构（毛厂出库单 UI）</h3>
+<p><strong>时间：</strong>2026-04-18 第十二轮</p>
+<p><strong>修改文件：</strong></p>
+<ul>
+<li><code>lib/pages/add_record_page.dart</code> — 全面重构表单布局与计算逻辑</li>
+</ul>
+<p><strong>增删改详情：</strong></p>
+<ul>
+<li><strong>新增 5 个输入字段</strong> — 在录入页表单中补充：① 品名（TextFormField，可选）；② 送货人（TextFormField，可选）；③ 总件数（TextFormField，整数类型，可选）；④ 毛重(kg)（TextFormField，小数类型，可选）；⑤ 扣皮(kg)（TextFormField，小数类型，可选）。布局采用三行双列 + 单行结构：品名/送货人同行、净重/单价同行、总件数/毛重同行、扣皮独占一行。</li>
+<li><strong>标签语义调整</strong> — 数量输入框 label 从"数量(kg)"改为<strong>"净重(kg) / 数量"</strong>，保留表达式计算功能（支持 <code>146+92+131</code> 累加）。单价输入框 label 从"单价（元）"改为<strong>"单价 (元/吨)"</strong>。</li>
+<li><strong>总金额计算公式变更</strong> — 原公式为 <code>净重(kg) × 单价(元)</code>，现改为 <code>(净重(kg) / 1000) × 单价(元/吨)</code>。例如净重 1500kg、单价 4000元/吨，总金额为 <code>(1500/1000) × 4000 = 6000</code> 元。</li>
+<li><strong>保存逻辑扩展</strong> — <code>_saveRecord()</code> 中解析总件数（<code>int.tryParse</code>）、毛重/扣皮（<code>double.tryParse</code>）后，连同品名、送货人一并写入 <code>StockMovement</code> 对象。所有新字段均为 nullable，空值时写入 null。</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>录入页支持毛厂出库单完整字段（品名、送货人、总件数、毛重、扣皮、净重、单价）</li>
+<li>净重支持表达式计算（如多个数量累加）</li>
+<li>单价单位改为"元/吨"，总金额按 (净重/1000)×单价 计算</li>
+<li>可选字段空值校验（总件数必须为整数，毛重/扣皮必须为数字）</li>
+</ul>
+</div>
+
+<h3>2.13 第十三阶段：记录详情页（RecordDetailPage）</h3>
+<p><strong>时间：</strong>2026-04-18 第十三轮</p>
+<p><strong>新增文件：</strong></p>
+<ul>
+<li><code>lib/pages/record_detail_page.dart</code> — 单据详情展示页</li>
+</ul>
+<p><strong>修改文件：</strong></p>
+<ul>
+<li><code>lib/pages/home_page.dart</code> — 列表卡片添加 onTap 跳转</li>
+</ul>
+<p><strong>增删改详情：</strong></p>
+<ul>
+<li><strong>新建 RecordDetailPage</strong> — 接收 <code>StockMovement</code> 和 <code>warehouseName</code> 两个参数，使用 <code>ListView</code> + 多个 <code>Card</code> 分组展示全部信息。页面布局分为四个区域：<br>
+① <strong>头部概览卡片</strong>：醒目的入库/出库标签（绿色/红色圆角 pill）+ 大号总金额显示，背景色与操作类型呼应；<br>
+② <strong>基本信息</strong>：流水号、时间、仓库、同步状态；<br>
+③ <strong>交易信息</strong>：交易对象、品名、送货人（nullable 字段为空时显示"—"并置灰）；<br>
+④ <strong>重量明细</strong>：总件数、毛重、扣皮、净重（高亮显示）。若同时存在毛重和扣皮，额外显示计算值 <code>毛重 - 扣皮</code> 供校验；<br>
+⑤ <strong>金额明细</strong>：单价(元/吨)、计算公式 <code>(净重 kg ÷ 1000) × 单价</code>、总金额（高亮 teal 色）。</li>
+<li><strong>主页列表点击跳转</strong> — <code>_buildMovementCard</code> 的 <code>ListTile</code> 添加 <code>onTap</code>，通过 <code>Navigator.push(MaterialPageRoute(...))</code> 跳转到详情页并传入记录和仓库名。</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>点击主页列表任意记录，可查看完整单据详情</li>
+<li>详情页按分组卡片展示全部 13+ 个字段</li>
+<li>nullable 字段为空时友好显示"—"</li>
+<li>总金额计算公式透明展示</li>
+<li>毛重-扣皮校验值自动计算显示</li>
+</ul>
+</div>
+
+<h3>2.14 第十四阶段：极速连录 BottomSheet（工厂场景重量批量录入）</h3>
+<p><strong>时间：</strong>2026-04-18 第十四轮</p>
+<p><strong>修改文件：</strong></p>
+<ul>
+<li><code>lib/pages/add_record_page.dart</code> — 新增极速连录功能（_showRapidEntrySheet + _RapidEntryBottomSheet）</li>
+</ul>
+<p><strong>增删改详情：</strong></p>
+<ul>
+<li><strong>需求背景</strong> — 毛厂出库单场景中，一批货通常包含几十甚至上百件，每件重量需要逐个称重后累加。传统方式在单个输入框中逐个输入再按计算器累加，效率极低且容易出错。</li>
+<li><strong>UI 设计</strong> — 在"净重(kg) / 数量"输入框右侧新增<strong>"极速连录"</strong>按钮（TextButton.icon，teal 主色）。点击后从底部弹出 <code>BottomSheet</code>，占据屏幕 85% 高度。BottomSheet 内部布局分为：<br>
+① <strong>顶部总计栏</strong>：固定高度，实时显示"共计 XXX kg（共 X 件）"，背景 teal 浅色；<br>
+② <strong>已录入列表区</strong>：使用 <code>Wrap</code> 展示所有已录入重量，每项以 <code>Chip</code> 呈现（序号 CircleAvatar + 重量文本 + 删除按钮），点击 Chip 的删除图标可移除该项；<br>
+③ <strong>当前输入栏</strong>：灰色背景圆角卡片，显示当前正在输入的数字，字体 24px 加粗；<br>
+④ <strong>自定义数字键盘</strong>：左侧 3×4 网格（7/8/9、4/5/6、1/2/3、./0/⌫），每个按键尺寸足够大（适合工厂戴手套操作）。退格键为红色。右侧纵向排列"下一笔"（橙色 ElevatedButton）和"完成"（teal FilledButton）两个大按钮。</li>
+<li><strong>交互逻辑</strong>：<br>
+- 用户通过数字键盘输入重量（如 50.2），点击<strong>"下一笔"</strong>后，该重量以 Chip 形式加入列表，输入区清空等待下一个；<br>
+- 如果发现输错了，直接点击对应 Chip 上的删除图标即可移除；<br>
+- 点击<strong>"完成"</strong>后，BottomSheet 关闭，自动将<strong>总净重</strong>（所有 Chip 重量之和）填入表单"净重"输入框，将<strong>总件数</strong>（Chip 数量）填入表单"总件数"输入框；<br>
+- 若点击完成时输入区还有未提交的内容，会自动先提交再加入总计。</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>净重输入框旁"极速连录"快捷入口</li>
+<li>自定义纯数字大键盘（0-9、小数点、退格），按键尺寸适配手套操作</li>
+<li>已录入重量 Chip 列表，支持点击删除</li>
+<li>实时总计栏（总重量 + 总件数）</li>
+<li>完成后自动回填表单净重和总件数字段</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>三、当前已实现功能汇总</h2>
+
+<table>
+<tr><th>层级</th><th>已实现功能</th></tr>
+<tr>
+<td><strong>数据层</strong></td>
+<td>
+SQLite 本地数据库（单例模式）<br>
+warehouses 表（id UUID + name）<br>
+stock_movements 表（UUID 主键、时间戳、交易对象、仓库外键、类型、净重(kg)、单价、同步状态、品名、总计件数、毛重、扣皮、送货人）<br>
+增（insert）、查（getAll / getByWarehouse / getPending）、改（updateSyncStatus）<br>
+数据库迁移机制（onUpgrade v1 → v2 → v3，ALTER TABLE 平滑添加列，不丢数据）<br>
+外键约束与索引优化（warehouseId、syncStatus）<br>
+桌面端 FFI 兼容（Windows / Linux / macOS）
+</td>
+</tr>
+<tr>
+<td><strong>AI / OCR 层</strong></td>
+<td>
+camera 摄像头预览与拍照（独立 StatefulWidget 生命周期管理，ResolutionPreset.medium）<br>
+image_picker 从系统相册选择照片（最大 1920×1920 压缩）<br>
+Google ML Kit 离线中文文本识别<br>
+正则提取发票信息（交易对象 + 数量 + 单价）<br>
+OCR 结果自动回填表单<br>
+相机权限动态申请（仅相机，不含麦克风）<br>
+相册读取权限申请（READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE）<br>
+ML Kit 异常捕获与友好错误提示
+</td>
+</tr>
+<tr>
+<td><strong>UI 层 - 主页</strong></td>
+<td>
+全部记录列表展示（时间倒序）<br>
+仓库筛选器（所有仓库 / 单仓库切换）<br>
+按仓库实时过滤流水<br>
+pending（橙色）与 synced（绿色）状态视觉区分<br>
+入库/出库标签区分（绿色/红色）<br>
+<strong>点击列表卡片查看完整单据详情（RecordDetailPage）</strong><br>
+下拉刷新、空状态提示、FAB 跳转<br>
+添加仓库弹窗<br>
+手动同步按钮 + 同步中指示器 + SnackBar 反馈（含占位符检测）
+</td>
+</tr>
+<tr>
+<td><strong>UI 层 - 录入页</strong></td>
+<td>
+目标仓库强制确认（Card + 校验）<br>
+入库/出库切换开关（SegmentedButton，绿色/红色）<br>
+拍照识别发票按钮 + 相册识别按钮<br>
+交易对象、品名、送货人 表单字段<br>
+净重(kg) / 数量 输入框，支持表达式计算（如 146+92+131），按回车时自动回填<br>
+单价 (元/吨) 输入框<br>
+总件数、毛重(kg)、扣皮(kg) 可选字段<br>
+实时总金额计算（动态卡片）：公式为 (净重/1000) × 单价<br>
+表单校验（非空、正数、可选整数/小数）<br>
+识别 Loading 遮罩<br>
+无仓库时禁用操作<br>
+保存异常保护（try-catch + SnackBar）
+</td>
+</tr>
+<tr>
+<td><strong>网络同步层</strong></td>
+<td>
+Dio HTTP 客户端封装<br>
+批量推送 pending 记录到后端 POST /api/sync<br>
+超时与连接错误检测（判定后端不可达）<br>
+占位符 IP 预检测（直接提示未配置）<br>
+unknown 类型异常识别（SocketException 等）<br>
+同步成功后批量更新本地 synced 状态<br>
+手动同步按钮 + 同步中指示器 + SnackBar 反馈
+</td>
+</tr>
+</table>
+</div>
+
+<div class="section">
+<h2>四、待检查验证的功能（TODO）</h2>
+<p class="todo">以下功能已在代码层面实现，但尚未在真实环境或真机上充分验证：</p>
+
+<h3>1. 真机 OCR 识别准确率</h3>
+<p>google_mlkit_text_recognition 仅在移动端可用。需在真机上验证不同光照、角度、发票字体下的识别准确率，尤其是数量和单价的提取。</p>
+
+<h3>2. 后端 API 连通性</h3>
+<p>SyncService._baseUrl 当前为占位符 100.x.x.x。需在后端部署完成后验证 Tailscale / WireGuard 组网及 POST /api/sync 接口。</p>
+
+<h3>3. 网络恢复后的自动同步</h3>
+<p>当前仅支持手动触发同步。尚未实现「网络恢复后自动同步」的后台机制（如 workmanager + connectivity_plus 监听）。</p>
+
+<h3>4. 大量数据下的列表性能</h3>
+<p>当前 ListView.builder 未做分页，当记录数超过 1000 条时可能存在性能瓶颈。</p>
+
+<h3>5. 并发同步的边界情况</h3>
+<p>若用户在同步过程中新增记录，该记录不会被错误标记为 synced（读取 pending 列表在同步开始时完成），但需实际验证。</p>
+</div>
+
+<div class="section">
+<h2>五、已修复的 Bug 清单</h2>
+
+<table>
+<tr><th>Bug 描述</th><th>根因</th><th>修复方式</th></tr>
+<tr>
+<td>添加仓库后页面红屏<br><code>_dependents.isEmpty</code></td>
+<td>Flutter 3.19+ DropdownButton 在 items 变化时内部路由依赖未清理</td>
+<td>添加 <code>key: ValueKey(_warehouses.hashCode)</code> 强制重建；所有 setState 前增加 mounted 检查</td>
+</tr>
+<tr>
+<td>相机拍摄后闪退（已部分处理，真机仍闪退）<br><code>Disposed CameraController</code></td>
+<td>CameraController 在 showDialog builder 中初始化，dispose 由外部控制，弹窗关闭和 dispose 不同步</td>
+<td>提取为独立 <code>_CameraPreviewDialog</code> StatefulWidget 自我管理生命周期；设置 <code>enableAudio: false</code>。<strong>注：模拟器/低版本 Android 上不再报错，但 PHB110（Android 16）真机上点击拍照按钮仍直接闪退，根因待排查。</strong></td>
+</tr>
+<tr>
+<td>数量输入不支持表达式</td>
+<td>只能输入纯数字</td>
+<td>新增 <code>_evaluateExpression()</code>，支持 +、-、*、/ 四则运算；onEditingComplete 自动计算回填</td>
+</tr>
+<tr>
+<td>软件申请了麦克风权限</td>
+<td>CameraController 默认 enableAudio: true</td>
+<td>设置 <code>enableAudio: false</code>，仅申请相机权限</td>
+</tr>
+<tr>
+<td>flutter analyze 报 98k 个错误</td>
+<td>项目根目录存在 Flutter SDK 副本（11/flutter/），分析器扫描了 SDK 源码</td>
+<td>删除 SDK 副本；analysis_options.yaml 中 exclude flutter/** 等目录</td>
+</tr>
+<tr>
+<td>VS Code 提示 SDK 无效</td>
+<td>11/flutter/bin/ 下只有 cache 目录，缺少 flutter.bat</td>
+<td>删除 11/ 目录；重新 git clone 完整 Flutter SDK 到 d:\CCTT\flutter\</td>
+</tr>
+<tr>
+<td>NDK 编译报错</td>
+<td>首次下载的 NDK 损坏，缺少 source.properties</td>
+<td>删除损坏的 NDK 目录，让 Gradle 重新下载</td>
+</tr>
+<tr>
+<td>真机点击拍照/相册按钮后 App 闪退（<strong class="todo">未解决</strong>）</td>
+<td>原因不明。初步猜测：Android 13+ 权限模型变化、image_picker 底层 Activity 生命周期异常、或 ML Kit 中文语言包未下载导致引擎初始化失败</td>
+<td>已尝试：降低分辨率、显式请求权限、增加异常捕获。真机测试仍闪退，需进一步排查 adb logcat 日志确定根因</td>
+</tr>
+<tr>
+<td>输入表达式后界面卡住</td>
+<td>onTapOutside 在焦点切换时修改 controller.text 并 setState，导致 FocusNode 不一致；saveRecord 中 double.parse 无法解析表达式且无 try-catch</td>
+<td>① 去掉 onTapOutside；② 改用 onFieldSubmitted；③ saveRecord 中使用 _evaluateExpression 安全解析；④ saveRecord 整体包裹 try-catch</td>
+</tr>
+<tr>
+<td>同步显示"未知网络错误"</td>
+<td>占位符 IP 100.x.x.x 导致 DioExceptionType.unknown，原代码未捕获该类型</td>
+<td>① 增加占位符 IP 预检测；② DioExceptionType.unknown 分支中识别 SocketException 等常见错误，返回明确提示</td>
+</tr>
+</table>
+</div>
+
+<div class="section">
+<h2>六、可能的隐藏风险与注意事项</h2>
+
+<table>
+<tr><th>风险项</th><th>严重程度</th><th>说明</th></tr>
+<tr>
+<td class="risk">真机相机/相册闪退（<strong>未解决</strong>）</td>
+<td class="star">★★★</td>
+<td>PHB110（Android 16）真机上点击"拍照识别"或"相册识别"按钮后 App 直接闪退崩溃。已尝试：独立 StatefulWidget 生命周期管理、降低分辨率、显式权限申请、异常捕获。均无效。根因可能为：Android 13+ 权限模型变化、image_picker 底层 Activity 生命周期异常、ML Kit 中文语言包未下载。需通过 adb logcat 进一步排查。</td>
+</tr>
+<tr>
+<td class="risk">camera / ML Kit 不支持 Windows / Web</td>
+<td class="star">★★★</td>
+<td>google_mlkit_text_recognition 和 camera 插件均不支持 Windows 桌面端。在 Windows 上运行到相机逻辑时会抛出运行时异常。开发调试需使用 Android 模拟器或真机。</td>
+</tr>
+<tr>
+<td class="risk">硬编码后端地址（<strong>已解决</strong>）</td>
+<td class="star">★☆☆</td>
+<td>原 SyncService._baseUrl 为硬编码占位符。现已通过 SharedPreferences + 设置弹窗实现动态配置，用户可在 App 内修改后端地址。</td>
+</tr>
+<tr>
+<td class="risk">数据库迁移导致数据丢失</td>
+<td class="star">★★★</td>
+<td>v1 → v2 的 onUpgrade 直接 DROP 旧表。若用户已有旧数据，升级后数据丢失。生产环境需编写数据迁移脚本而非直接删除。</td>
+</tr>
+<tr>
+<td class="risk">表达式计算无优先级</td>
+<td class="star">★★☆</td>
+<td>_evaluateExpression() 采用从左到右计算，不支持运算符优先级。例如 "100+2*50" 会得到 5100 而不是 200。建议用户仅使用纯加法或简单乘法。</td>
+</tr>
+<tr>
+<td class="risk">同步失败后的重试机制缺失</td>
+<td class="star">★★☆</td>
+<td>当前仅做一次请求，失败即返回。没有指数退避重试、断点续传或离线队列持久化。网络抖动导致偶发失败需用户手动再次点击。</td>
+</tr>
+<tr>
+<td class="risk">OCR 正则的鲁棒性</td>
+<td class="star">★★☆</td>
+<td>正则仅匹配特定关键词（收款方/数量/单价等）。若发票格式变化，正则将失效。建议增加识别结果确认弹窗。</td>
+</tr>
+<tr>
+<td class="risk">无数据加密</td>
+<td class="star">★★☆</td>
+<td>SQLite 数据库文件以明文存储。若设备被 root 或越狱，数据可被直接读取。</td>
+</tr>
+<tr>
+<td class="risk">BLoC / 依赖注入尚未接入</td>
+<td class="star">★★☆</td>
+<td>pubspec.yaml 已引入 flutter_bloc、get_it、injectable，但 UI 层仍使用 StatefulWidget + setState。</td>
+</tr>
+</table>
+</div>
+
+<div class="section">
+<h2>七、当前工程文件结构总览</h2>
+<div class="code">cctt/
+├── flutter/                                  Flutter SDK（git clone stable）
+├── pubspec.yaml                              依赖清单（含 image_picker、shared_preferences）
+├── analysis_options.yaml                     Dart 分析器配置（排除 flutter/ 等目录）
+├── android/app/src/main/AndroidManifest.xml  Android 权限配置（CAMERA + READ_MEDIA_IMAGES）
+├── ios/Runner/Info.plist                     iOS 权限配置
+├── lib/
+│   ├── main.dart                             应用入口（FFI 初始化 + MaterialApp）
+
+│   ├── pages/
+│   │   ├── home_page.dart                    主页（列表 + 仓库筛选 + 同步按钮 + 设置弹窗）
+│   │   └── add_record_page.dart              新建页（仓库确认 + 入出库 + 相机/相册 OCR + 表达式计算）<br>
+│   │                                           <strong>注：真机相机/相册闪退，待排查</strong>
+│   └── services/
+│       └── sync_service.dart                 P2P 同步服务（Dio，动态读取 SharedPreferences 配置）
+│   ├── models/
+│   │   ├── stock_movement.dart               库存移动记录模型（v3 版，含毛厂出库单扩展字段）
+│   │   └── warehouse.dart                    仓库模型
+│   ├── data/
+│   │   └── database_helper.dart              SQLite 单例（数据库版本 3， ALTER TABLE 迁移）
+└── windows/ linux/ ios/ android/ macos/ web/  原生平台工程</div>
+</div>
+
+<h3>2.15 第十五阶段：Web 管理后台（Node.js + SQLite + MQTT）</h3>
+<p><strong>时间：</strong>2026-04-27 第一轮</p>
+<p><strong>新增目录：</strong></p>
+<ul>
+<li><code>admin/</code> — 完整的 Web 管理后台项目</li>
+</ul>
+<p><strong>新增文件（后端）：</strong></p>
+<ul>
+<li><code>admin/package.json</code> — Node.js 依赖清单（express, better-sqlite3, mqtt, dotenv, uuid, cors）</li>
+<li><code>admin/.env.example</code> — MQTT Broker 配置模板</li>
+<li><code>admin/start.bat</code> — Windows 一键启动脚本</li>
+<li><code>admin/server/index.js</code> — Express 入口，端口 3456，挂载 API 路由 + 静态文件 + MQTT 启动</li>
+<li><code>admin/server/db.js</code> — better-sqlite3 初始化，Schema 完全匹配 Flutter v5（warehouses + stock_movements 建表 + 索引 + 外键）</li>
+<li><code>admin/server/mqtt.js</code> — MQTT 订阅者（长连接，订阅 cctt/sync/inbound）+ 快照发布者（按需连接，发布 retain 消息到 cctt/sync/snapshot）</li>
+<li><code>admin/server/routes/warehouses.js</code> — 仓库 CRUD（含外键引用检查，DELETE 时验证无关联记录）</li>
+<li><code>admin/server/routes/movements.js</code> — 出入库记录 CRUD（分页 + 筛选 + 业务逻辑：净重=毛重-扣皮、总金额=(净重/1000)×单价、软删除、编辑后重置 syncStatus）</li>
+<li><code>admin/server/routes/stats.js</code> — 仪表盘聚合统计（总记录数、按类型/同步状态分布、最近活动）</li>
+<li><code>admin/server/routes/sync.js</code> — MQTT 连接状态查询 + 手动触发快照发布 + 同步日志</li>
+</ul>
+<p><strong>新增文件（前端）：</strong></p>
+<ul>
+<li><code>admin/public/index.html</code> — SPA 入口，Teal 主题导航栏 + MQTT 状态指示器</li>
+<li><code>admin/public/css/app.css</code> — 完整样式系统（工业精致风、CSS 变量、响应式、凭证卡片、Toast、模态框）</li>
+<li><code>admin/public/js/api.js</code> — REST API 封装（fetch-based）</li>
+<li><code>admin/public/js/router.js</code> — Hash 路由（支持参数 :id）</li>
+<li><code>admin/public/js/state.js</code> — 简易响应式状态管理</li>
+<li><code>admin/public/js/pages/dashboard.js</code> — 仪表盘：4 统计卡片 + 最近活动表</li>
+<li><code>admin/public/js/pages/movements.js</code> — 记录列表：筛选（仓库/类型/同步/搜索）+ 分页 + 作废/恢复</li>
+<li><code>admin/public/js/pages/movement-form.js</code> — 新增/编辑表单：14 字段 + 净重/金额实时计算（匹配 Flutter AddRecordPage/EditRecordPage）</li>
+<li><code>admin/public/js/pages/movement-detail.js</code> — 凭证详情：毛重-扣皮校验（匹配 Flutter RecordDetailPage）</li>
+<li><code>admin/public/js/pages/warehouses.js</code> — 仓库管理：增删改 + 关联保护模态框</li>
+<li><code>admin/public/js/pages/settings.js</code> — 同步设置：MQTT 状态 + 快照发布 + 同步日志</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>Web 端完整 CRUD（仓库 + 出入库记录），100% 沿用 Flutter 端业务逻辑</li>
+<li>MQTT 订阅者自动接收 Flutter 端同步的数据（INSERT OR REPLACE 写入 SQLite）</li>
+<li>Web 端新建/编辑记录后 syncStatus = pending，发布快照后全部标记 synced</li>
+<li>MQTT 接收的记录强制标记 synced（数据本就来自手机）</li>
+<li>仓库删除 FK 保护（有关联记录时返回 409）</li>
+<li>软删除 + 恢复（isDeleted=1 ↔ 0，syncStatus 同步更新）</li>
+<li>仪表盘聚合统计（总记录数、仓库数、按类型/同步状态分布）</li>
+<li>快照手动发布（retain 消息到 cctt/sync/snapshot，手机端可拉取）</li>
+<li>同步日志（最近 50 条，含时间戳 + 记录数 + 状态）</li>
+</ul>
+
+<h3>2.16 第十六阶段：UTF-8 编码统一 + 手机端自动检测云端差异</h3>
+<p><strong>时间：</strong>2026-04-27 第二轮</p>
+<p><strong>修改文件（Web 端）：</strong></p>
+<ul>
+<li><code>admin/server/mqtt.js</code> — MQTT 消息接收显式 <code>toString('utf8')</code>；快照发布显式 <code>Buffer.from(payload, 'utf8')</code></li>
+<li><code>admin/server/index.js</code> — API 路由统一设置 <code>Content-Type: application/json; charset=utf-8</code></li>
+<li><code>admin/public/js/api.js</code> — fetch 请求加 <code>Accept: application/json; charset=utf-8</code></li>
+</ul>
+<p><strong>修改文件（Flutter 端）：</strong></p>
+<ul>
+<li><code>lib/data/database_helper.dart</code> — insertMovement / insertWarehouse 新增可选参数 conflictAlgorithm（默认 replace）</li>
+<li><code>lib/services/sync_service.dart</code> — 新增 PullResult 返回类型；pullSnapshot() 拉取前统计本地记录数，拉取后计算实际新增量；使用 ConflictAlgorithm.ignore 实现本地优先、只添加不覆盖</li>
+<li><code>lib/pages/home_page.dart</code> — 新增 _unpushedCount（未推送云端数）、_cloudNewCount（云端新数据数）；启动时自动静默拉取云端快照 + 检测未推送记录；AppBar 上传按钮显示未推送角标，下载按钮显示云端新数据角标（teal）/ 绿色已同步图标</li>
+</ul>
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>全链路 UTF-8 编码统一（Flutter ↔ MQTT ↔ Node.js ↔ SQLite ↔ 前端），消除乱码</li>
+<li>Web 端 SQLite 数据库持久化到本地磁盘（重启不丢数据）</li>
+<li>手机启动时自动检测本地未推送记录 → SnackBar 通知"有 N 条记录尚未同步到云端"</li>
+<li>手机启动时静默拉取云端快照 → 发现新数据时 teal SnackBar 通知"云端有 N 条新记录已同步到本地"</li>
+<li>快照拉取采用本地优先策略（ConflictAlgorithm.ignore），只添加新记录，不覆盖不删除本地数据</li>
+<li>AppBar 双向状态指示器：☁️↑ 红色角标（待推送数量）+ ☁️↓ teal 角标/绿色图标（云端新数据/已同步）</li>
+</ul>
+
+<div class="section">
+<h2>八、后续开发建议</h2>
+<ol>
+<li><strong>（已完成）</strong>将硬编码的 _baseUrl 改为从 Settings 页面读取。</li>
+<li><strong>（已完成）</strong>搭建 Web 管理后台（Node.js + Express + SQLite），实现图形化 CRUD。</li>
+<li><strong>（已完成）</strong>手机端启动时自动检测云端差异，双向同步状态指示。</li>
+<li>引入 flutter_bloc + get_it 重构状态管理，替换现有 setState。</li>
+<li>实现后台自动同步（connectivity_plus 监听网络恢复 + workmanager 定时任务）。</li>
+<li>为 OCR 增加「识别结果确认」弹窗，允许用户在回填前手动修正。</li>
+<li>添加库存统计报表（按仓库计算实时库存 = 入库合计 − 出库合计）。</li>
+<li>添加单元测试和 Widget 测试（flutter_test 已引入）。</li>
+</ol>
+</div>
+
+</body>
+</html>

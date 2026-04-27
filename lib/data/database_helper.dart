@@ -138,12 +138,12 @@ class DatabaseHelper {
   // =================== Warehouses CRUD ===================
 
   /// 新增仓库
-  Future<int> insertWarehouse(Warehouse warehouse) async {
+  Future<int> insertWarehouse(Warehouse warehouse, {ConflictAlgorithm conflictAlgorithm = ConflictAlgorithm.replace}) async {
     final db = await database;
     return await db.insert(
       _warehousesTable,
       warehouse.toJson(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: conflictAlgorithm,
     );
   }
 
@@ -180,12 +180,15 @@ class DatabaseHelper {
   // =================== StockMovements CRUD ===================
 
   /// 插入一条库存移动记录
-  Future<int> insertMovement(StockMovement movement) async {
+  ///
+  /// [conflictAlgorithm] 默认 [ConflictAlgorithm.replace]（用于本地编辑覆盖）。
+  /// 拉取云端快照时传 [ConflictAlgorithm.ignore]，确保本地数据不被覆盖（本地优先，只添加不删除）。
+  Future<int> insertMovement(StockMovement movement, {ConflictAlgorithm conflictAlgorithm = ConflictAlgorithm.replace}) async {
     final db = await database;
     return await db.insert(
       _movementsTable,
       movement.toJson(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: conflictAlgorithm,
     );
   }
 

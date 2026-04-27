@@ -26,6 +26,9 @@ class _HomePageState extends State<HomePage> {
   List<StockMovement> _movements = [];
   List<Warehouse> _warehouses = [];
   bool _isLoading = true;
+  int _unpushedCount = 0; // 本地未推送到云端的记录数
+  int _cloudNewCount = 0; // 云端比本地多出的记录数（上次自动拉取的结果）
+  bool _cloudChecked = false;
 
   /// null 表示「所有仓库」
   String? _selectedWarehouseId;
@@ -36,7 +39,10 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadData().then((_) {
+      _checkUnpushedRecords();
+      _autoPullFromCloud();
+    });
   }
 
   /// 加载所有数据
@@ -45,11 +51,62 @@ class _HomePageState extends State<HomePage> {
     final movements = await DatabaseHelper.instance.getAllMovements();
     final warehouses = await DatabaseHelper.instance.getAllWarehouses();
     if (mounted) {
+      final unsynced = movements.where((m) => m.syncStatus != SyncStatus.synced).length;
       setState(() {
         _movements = movements;
         _warehouses = warehouses;
+        _unpushedCount = unsynced;
         _isLoading = false;
       });
+    }
+  }
+
+  /// 启动后检测未推送到云端的记录
+  void _checkUnpushedRecords() {
+    if (!mounted || _unpushedCount == 0) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('有 $_unpushedCount 条记录尚未同步到云端'),
+          action: SnackBarAction(
+            label: '立即同步',
+            onPressed: _syncRecords,
+          ),
+          duration: const Duration(seconds: 8),
+        ),
+      );
+    });
+  }
+
+  /// 启动后静默拉取云端快照，检测云端是否有本地没有的数据
+  Future<void> _autoPullFromCloud() async {
+    if (!mounted) return;
+    final result = await SyncService.pullSnapshot();
+    if (!mounted) return;
+
+    setState(() {
+      _cloudNewCount = result.addedCount;
+      _cloudChecked = true;
+    });
+
+    if (result.success && result.addedCount > 0) {
+      // 云端有新数据，刷新列表并通知用户
+      await _loadData();
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('云端有 ${result.addedCount} 条新记录已同步到本地'),
+            backgroundColor: Colors.teal,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      });
+    } else if (!result.success && result.message.contains('超时')) {
+      // 云端无快照，静默忽略
+      if (mounted) setState(() => _cloudChecked = true);
     }
   }
 
@@ -66,7 +123,7 @@ class _HomePageState extends State<HomePage> {
     await _loadData();
   }
 
-  /// 从云端拉取 retain 全量快照（带全屏 Loading）
+  /// 从云端拉取 retain 全量快照（带全屏 Loading，手动触发）
   Future<void> _pullSnapshot() async {
     if (!mounted) return;
 
@@ -80,7 +137,7 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    String result;
+    PullResult result;
     try {
       result = await SyncService.pullSnapshot();
     } finally {
@@ -88,16 +145,21 @@ class _HomePageState extends State<HomePage> {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
     }
 
+    // 更新云端状态
+    if (mounted) {
+      setState(() {
+        _cloudNewCount = result.addedCount;
+        _cloudChecked = true;
+      });
+    }
+
     // 刷新页面
     await _loadData();
 
     if (!mounted) return;
 
-    final isSuccess = result.contains('成功');
-    final isTimeout = result.contains('超时') || result.contains('尚未生成快照');
-
     // 超时场景弹窗提示，其他场景用 SnackBar
-    if (isTimeout) {
+    if (!result.success && result.message.contains('超时')) {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -117,8 +179,8 @@ class _HomePageState extends State<HomePage> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result),
-          backgroundColor: isSuccess ? Colors.green : Colors.red,
+          content: Text(result.message),
+          backgroundColor: result.success ? Colors.green : Colors.red,
         ),
       );
     }
@@ -318,13 +380,30 @@ class _HomePageState extends State<HomePage> {
         title: const Text('CCTT 库存管理'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.cloud_upload),
-            tooltip: '同步到 PC',
+            icon: _unpushedCount > 0
+                ? Badge(
+                    label: Text('$_unpushedCount'),
+                    child: const Icon(Icons.cloud_upload),
+                  )
+                : const Icon(Icons.cloud_upload),
+            tooltip: _unpushedCount > 0 ? '推送到云端（$_unpushedCount 条待推送）' : '推送到云端',
             onPressed: _syncRecords,
           ),
           IconButton(
-            icon: const Icon(Icons.cloud_download),
-            tooltip: '从云端拉取快照',
+            icon: _cloudNewCount > 0
+                ? Badge(
+                    label: Text('$_cloudNewCount'),
+                    backgroundColor: Colors.teal,
+                    child: const Icon(Icons.cloud_download),
+                  )
+                : _cloudChecked
+                    ? const Icon(Icons.cloud_download, color: Colors.green)
+                    : const Icon(Icons.cloud_download),
+            tooltip: _cloudNewCount > 0
+                ? '从云端拉取（$_cloudNewCount 条新数据）'
+                : _cloudChecked
+                    ? '云端已同步，暂无新数据'
+                    : '从云端拉取快照',
             onPressed: _pullSnapshot,
           ),
           IconButton(

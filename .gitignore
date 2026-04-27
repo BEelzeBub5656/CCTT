@@ -55,5 +55,9 @@ app.*.map.json
 /convert_to_docx.js
 
 # Project documents (generated)
-/CCTT_开发记录.html
 /CCTT_开发记录.docx
+
+# Admin panel (generated / sensitive)
+/admin/node_modules/
+/admin/.env
+/admin/server/data/

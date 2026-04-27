@@ -2,12 +2,28 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../data/database_helper.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 import 'settings_service.dart';
+
+/// 拉取快照的结果
+class PullResult {
+  final bool success;
+  final int addedCount;
+  final int warehouseCount;
+  final String message;
+
+  const PullResult({
+    required this.success,
+    required this.addedCount,
+    required this.warehouseCount,
+    required this.message,
+  });
+}
 
 /// MQTT 同步服务
 ///
@@ -102,10 +118,18 @@ class SyncService {
   /// 解析 JSON 时，所有字段均有绝对安全的空检查，
   /// 防止 `type 'Null' is not a subtype of type '...'` 运行时崩溃。
   ///
+  /// 本地优先策略：使用 [ConflictAlgorithm.ignore]，云端数据仅在本地不存在时才插入，
+  /// 已存在的本地记录绝不覆盖。
+  ///
   /// **异常安全原则**：监听 updates 设 5 秒超时，任何异常都在 finally 中 disconnect。
-  static Future<String> pullSnapshot() async {
+  static Future<PullResult> pullSnapshot() async {
     final dbHelper = DatabaseHelper.instance;
     MqttServerClient? client;
+
+    // 拉取前统计本地记录数，用于计算新增量
+    final beforeMovements = await dbHelper.getAllMovements();
+    final beforeCount = beforeMovements.length;
+    int whAdded = 0;
 
     try {
       client = await _createClient();
@@ -144,30 +168,45 @@ class SyncService {
       final List<dynamic> warehousesList =
           data['warehouses'] as List<dynamic>? ?? [];
 
-      // 1. 先写入 warehouses
+      // 1. 先写入 warehouses — 只添加不覆盖（本地优先）
       if (warehousesList.isNotEmpty) {
         for (final e in warehousesList) {
           if (e is! Map<String, dynamic>) continue;
           final wh = Warehouse.fromJson(e);
-          await dbHelper.insertWarehouse(wh);
+          await dbHelper.insertWarehouse(wh, conflictAlgorithm: ConflictAlgorithm.ignore);
+          whAdded++;
         }
       }
 
-      // 2. 再写入 records
-      int count = 0;
+      // 2. 再写入 records — 本地优先，只添加不删除不覆盖
       if (recordsList.isNotEmpty) {
         for (final e in recordsList) {
           if (e is! Map<String, dynamic>) continue;
           final record = StockMovement.fromJson(e);
-          await dbHelper.insertMovement(record);
-          count++;
+          await dbHelper.insertMovement(record, conflictAlgorithm: ConflictAlgorithm.ignore);
         }
       }
 
+      // 拉取后统计，计算实际新增
+      final afterMovements = await dbHelper.getAllMovements();
+      final actualNew = afterMovements.length - beforeCount;
+
       client.unsubscribe(_snapshotTopic);
-      return '成功从云端恢复 $count 条记录（含 ${warehousesList.length} 个仓库）';
+      return PullResult(
+        success: true,
+        addedCount: actualNew,
+        warehouseCount: whAdded,
+        message: actualNew > 0
+            ? '成功从云端获取 $actualNew 条新记录'
+            : '已与云端同步，暂无新数据',
+      );
     } catch (e) {
-      return '拉取快照失败: $e';
+      return PullResult(
+        success: false,
+        addedCount: 0,
+        warehouseCount: 0,
+        message: '拉取快照失败: $e',
+      );
     } finally {
       client?.disconnect();
     }
