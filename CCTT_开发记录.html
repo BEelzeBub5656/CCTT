@@ -487,9 +487,9 @@ unknown 类型异常识别（SocketException 等）<br>
 <table>
 <tr><th>风险项</th><th>严重程度</th><th>说明</th></tr>
 <tr>
-<td class="risk">真机相机/相册闪退（<strong>未解决</strong>）</td>
+<td class="risk">真机相机/相册闪退（<strong class="done">已解决 — 2026-06-07</strong>）</td>
 <td class="star">★★★</td>
-<td>PHB110（Android 16）真机上点击"拍照识别"或"相册识别"按钮后 App 直接闪退崩溃。已尝试：独立 StatefulWidget 生命周期管理、降低分辨率、显式权限申请、异常捕获。均无效。根因可能为：Android 13+ 权限模型变化、image_picker 底层 Activity 生命周期异常、ML Kit 中文语言包未下载。需通过 adb logcat 进一步排查。</td>
+<td>根因确认为 Google ML Kit 中文 OCR 模型类 Android 侧缺失（NoClassDefFoundError）。已移除 ML Kit 依赖，拍照改为直接存档留底，不再闪退。详见 2.17 阶段。</td>
 </tr>
 <tr>
 <td class="risk">camera 不支持 Windows / Web</td>
