@@ -46,6 +46,8 @@ function initialize() {
       totalPieces INTEGER,
       deliveryPerson TEXT,
       isDeleted INTEGER NOT NULL DEFAULT 0,
+      imagePath TEXT,
+      voidReason TEXT,
       FOREIGN KEY (warehouseId) REFERENCES warehouses(id) ON DELETE RESTRICT
     )
   `);

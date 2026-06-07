@@ -41,8 +41,8 @@ function upsertRecordsAndWarehouses(records, warehouses) {
   const insertMovement = db.prepare(`
     INSERT OR REPLACE INTO stock_movements
       (id, timestamp, partnerName, warehouseId, type, quantity, unitPrice, syncStatus,
-       color, variety, grossWeight, tareWeight, totalPieces, deliveryPerson, isDeleted)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       color, variety, grossWeight, tareWeight, totalPieces, deliveryPerson, isDeleted, voidReason)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // 先写入仓库：新仓库直接插入，已存在的更新名称
@@ -80,6 +80,7 @@ function upsertRecordsAndWarehouses(records, warehouses) {
         rec.totalPieces || null,
         rec.deliveryPerson || null,
         rec.isDeleted || 0,
+        rec.voidReason || null,
       );
       inserted++;
     } catch (e) {

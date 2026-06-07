@@ -74,6 +74,9 @@ class StockMovement {
   /// 留档照片本地路径（v6）
   final String? imagePath;
 
+  /// 作废原因（v7）
+  final String? voidReason;
+
   StockMovement({
     String? id,
     required this.timestamp,
@@ -91,6 +94,7 @@ class StockMovement {
     this.deliveryPerson,
     this.isDeleted = false,
     this.imagePath,
+    this.voidReason,
   }) : id = id ?? const Uuid().v4();
 
   /// 总金额（元）= (净重 kg / 1000) × 单价(元/吨)
@@ -117,6 +121,7 @@ class StockMovement {
         'deliveryPerson': deliveryPerson,
         'isDeleted': isDeleted ? 1 : 0,
         'imagePath': imagePath,
+        'voidReason': voidReason,
       };
 
   /// 从 JSON/Map 解析，所有字段均有安全兜底，防止 `type 'Null' is not a subtype` 崩溃
@@ -138,6 +143,7 @@ class StockMovement {
         deliveryPerson: json['deliveryPerson'] as String?,
         isDeleted: (json['isDeleted'] as int?) == 1,
         imagePath: json['imagePath'] as String?,
+        voidReason: json['voidReason'] as String?,
       );
 
   StockMovement copyWith({
@@ -157,6 +163,7 @@ class StockMovement {
     String? deliveryPerson,
     bool? isDeleted,
     String? imagePath,
+    String? voidReason,
   }) =>
       StockMovement(
         id: id ?? this.id,
@@ -175,6 +182,7 @@ class StockMovement {
         deliveryPerson: deliveryPerson ?? this.deliveryPerson,
         isDeleted: isDeleted ?? this.isDeleted,
         imagePath: imagePath ?? this.imagePath,
+        voidReason: voidReason ?? this.voidReason,
       );
 
   // ───── 安全解析辅助 ─────

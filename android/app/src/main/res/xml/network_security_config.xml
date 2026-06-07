@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 允许 MQTT Broker 域名的 TLS 连接（自签名/非标准 CA 证书） -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">ala.cn-hangzhou.emqxsl.cn</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </domain-config>
+    <!-- 开发环境允许 cleartext 用于本地 PC 连接 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

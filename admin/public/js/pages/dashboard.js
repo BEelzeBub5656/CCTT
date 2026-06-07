@@ -61,7 +61,7 @@ export async function renderDashboard() {
           <button class="btn btn-sm btn-outline" onclick="location.reload()"><i class="fa-solid fa-rotate"></i> 刷新</button>
         </div>
         <div class="table-wrap">
-          ${stats.recentActivity.length ? renderRecentTable(stats.recentActivity) : '<div class="empty-state"><i class="fa-solid fa-inbox"></i><p>暂无记录</p></div>'}
+          ${(stats.recentActivity||[]).length ? renderRecentTable(stats.recentActivity) : '<div class="empty-state"><i class="fa-solid fa-inbox"></i><p>暂无记录</p></div>'}
         </div>
       </div>
     `;

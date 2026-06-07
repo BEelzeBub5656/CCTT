@@ -24,7 +24,7 @@ class _HomePageState extends State<HomePage> {
   int _unpushedCount = 0;
   int _cloudNewCount = 0;
   bool _cloudChecked = false;
-
+  String _searchKeyword = '';
   /// null 表示「所有仓库」
   String? _selectedWarehouseId;
 
@@ -42,16 +42,21 @@ class _HomePageState extends State<HomePage> {
   /// 加载所有数据
   Future<void> _loadData() async {
     if (mounted) setState(() => _isLoading = true);
-    final movements = await DatabaseHelper.instance.getAllMovements();
-    final warehouses = await DatabaseHelper.instance.getAllWarehouses();
-    if (mounted) {
-      final unsynced = movements.where((m) => m.syncStatus != SyncStatus.synced).length;
-      setState(() {
-        _movements = movements;
-        _warehouses = warehouses;
-        _unpushedCount = unsynced;
-        _isLoading = false;
-      });
+    try {
+      final movements = await DatabaseHelper.instance.getAllMovements();
+      final warehouses = await DatabaseHelper.instance.getAllWarehouses();
+      if (mounted) {
+        final unsynced = movements.where((m) => m.syncStatus != SyncStatus.synced).length;
+        setState(() {
+          _movements = movements;
+          _warehouses = warehouses;
+          _unpushedCount = unsynced;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('_loadData 失败: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -104,9 +109,24 @@ class _HomePageState extends State<HomePage> {
 
   /// 根据当前选择筛选记录
   List<StockMovement> get _filteredMovements {
-    final active = _movements.where((m) => !m.isDeleted).toList();
-    if (_selectedWarehouseId == null) return active;
-    return active.where((m) => m.warehouseId == _selectedWarehouseId).toList();
+    var list = _movements.where((m) => !m.isDeleted).toList();
+    if (_selectedWarehouseId != null) {
+      list = list.where((m) => m.warehouseId == _selectedWarehouseId).toList();
+    }
+    if (_searchKeyword.isNotEmpty) {
+      final kw = _searchKeyword.toLowerCase();
+      list = list.where((m) {
+        final time = DateTime.fromMillisecondsSinceEpoch(m.timestamp);
+        final monthStr = '${time.year}年${time.month}月 ${time.month}月';
+        final searchText = [
+          m.partnerName, m.color, m.variety, m.deliveryPerson ?? '',
+          _warehouseName(m.warehouseId),
+          monthStr,
+        ].join(' ').toLowerCase();
+        return searchText.contains(kw);
+      }).toList();
+    }
+    return list;
   }
 
   /// 下拉刷新
@@ -422,30 +442,35 @@ class _HomePageState extends State<HomePage> {
                 const Icon(Icons.filter_list, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String?>(
-                      key: ValueKey(_warehouses.hashCode),
-                      isExpanded: true,
-                      value: _selectedWarehouseId,
-                      hint: const Text('所有仓库'),
-                      items: [
-                        const DropdownMenuItem<String?>(
-                          value: null,
-                          child: Text('所有仓库'),
-                        ),
-                        ..._warehouses.map((w) {
-                          return DropdownMenuItem<String?>(
-                            value: w.id,
-                            child: Text(w.name),
-                          );
-                        }),
-                      ],
-                      onChanged: (value) {
-                        if (mounted) {
-                          setState(() => _selectedWarehouseId = value);
-                        }
-                      },
+                  child: PopupMenuButton<String?>(
+                    padding: EdgeInsets.zero,
+                    offset: const Offset(0, 40),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _selectedWarehouseId == null
+                            ? '所有仓库'
+                            : _warehouseName(_selectedWarehouseId!),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
+                    onSelected: (value) {
+                      if (mounted) setState(() => _selectedWarehouseId = value);
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem<String?>(
+                        value: null,
+                        child: Text('所有仓库', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                      ..._warehouses.map((w) => PopupMenuItem<String?>(
+                        value: w.id,
+                        child: Text(w.name),
+                      )),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -476,12 +501,93 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _navigateToAdd,
-        icon: const Icon(Icons.add),
-        label: const Text('新建'),
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            FloatingActionButton.extended(
+              heroTag: 'search',
+              onPressed: _showSearchDialog,
+              icon: const Icon(Icons.search),
+              label: Text(_searchKeyword.isNotEmpty ? '搜索中' : '查询'),
+              backgroundColor: _searchKeyword.isNotEmpty ? Colors.teal : null,
+            ),
+            FloatingActionButton.extended(
+              heroTag: 'add',
+              onPressed: _navigateToAdd,
+              icon: const Icon(Icons.add),
+              label: const Text('新建'),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+    );
+  }
+
+  /// 关键词搜索弹窗
+  Future<void> _showSearchDialog() async {
+    final controller = TextEditingController(text: _searchKeyword);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(children: [
+          const Icon(Icons.search, size: 20),
+          const SizedBox(width: 8),
+          const Text('查询记录'),
+          const Spacer(),
+          if (_searchKeyword.isNotEmpty)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, '__CLEAR__'),
+              child: const Text('清除', style: TextStyle(fontSize: 12)),
+            ),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: '交易对象、颜色、品种、送货人、X月…',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.edit_note),
+              ),
+              textInputAction: TextInputAction.search,
+              onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              children: ['6月', '白色', '黑色', '绵羊毛', '山羊绒'].map((tag) => ActionChip(
+                label: Text(tag, style: const TextStyle(fontSize: 12)),
+                onPressed: () => Navigator.pop(ctx, tag),
+              )).toList(),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('搜索'),
+          ),
+        ],
       ),
     );
+
+    if (result == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+      return;
+    }
+    if (result == '__CLEAR__') {
+      setState(() => _searchKeyword = '');
+      WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+      return;
+    }
+    setState(() => _searchKeyword = result);
+    WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
   }
 
   /// 空状态提示
@@ -612,10 +718,10 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    reasonController.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) => reasonController.dispose());
 
     if (confirmed == true && mounted) {
-      final updated = record.copyWith(isDeleted: true, syncStatus: SyncStatus.pending);
+      final updated = record.copyWith(isDeleted: true, syncStatus: SyncStatus.pending, voidReason: reason);
       await DatabaseHelper.instance.updateMovement(updated);
       await _loadData();
       if (mounted) {

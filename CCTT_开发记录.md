@@ -1,9 +1,10 @@
 # CCTT 项目开发记录文档
 
-文档生成日期：2026-06-07（更新）
+文档生成日期：2026-06-07（初代版本 v1.0 收工）
 项目名称：CCTT（离线优先个人库存管理 App + Web 管理后台）
 技术栈：Flutter + Dart + SQLite + MQTT + Node.js + Express + better-sqlite3
-最新数据库版本：v6（新增 imagePath 留档照片字段）
+最新数据库版本：v7（新增 voidReason 作废原因字段）
+当前状态：🟢 初代版本已收工，等待使用反馈
 
 ## 一、项目概述
 
@@ -578,4 +579,67 @@ at TextRecognizer.handleDetection()
 5. 实现后台自动同步（connectivity_plus 监听网络恢复 + workmanager 定时任务）。
 6. 如有需要，可接入云端 OCR API（如百度 OCR、阿里云 OCR）实现中文发票智能识别。
 7. 添加库存统计报表（按仓库计算实时库存 = 入库合计 − 出库合计）。
+
+### 2.20 第二十阶段：全量审查 + 数据库 v7 + Search + Release APK
+
+**时间：**2026-06-07
+
+**修改文件（Flutter）：**
+- `lib/models/stock_movement.dart` — 新增 `voidReason` 字段（v7）
+- `lib/data/database_helper.dart` — v6→v7 迁移；新增 `deleteMovements()` 批量删除；batch.commit 改为 noResult:false
+- `lib/pages/home_page.dart` — 左下角 🔍 查询按钮 + 快捷标签弹窗；DropdownButton 替换为 PopupMenuButton；作废原因 ChoiceChip + 自定义输入；_loadData() try-catch；PullResult 结构化返回
+- `lib/pages/record_detail_page.dart` — 已作废横幅下方显示作废原因
+- `lib/services/sync_service.dart` — pullSnapshot 删除逻辑加 syncStatus==synced 守卫；手机上传同时发布 retain 快照
+- `android/app/src/main/AndroidManifest.xml` — 添加 INTERNET + ACCESS_NETWORK_STATE 权限
+- `android/app/src/main/res/xml/network_security_config.xml` — 新建，允许 EMQX 域名 TLS
+
+**修改文件（Web 后端）：**
+- `admin/server/db.js` — Schema 加 voidReason / imagePath
+- `admin/server/mqtt.js` — 仓库 INSERT OR IGNORE + UPDATE name 防 FK 死循环；快照去抖 800ms；接收快照不再反刍
+- `admin/server/routes/movements.js` — safeNum() 防 NaN；软删除存 voidReason；恢复清 voidReason；DELETE /:id/hard 永久删除
+- `admin/server/index.js` — 优雅关闭 + unhandledRejection
+
+**修改文件（Web 前端）：**
+- `admin/public/js/pages/dashboard.js` — 统计字段可选链 + toFixed 守卫
+- `admin/public/js/pages/movement-detail.js` — 已作废横幅 + 原因展示；toFixed 守卫
+- `admin/public/js/pages/movements.js` — 行点击看详情；永久删除按钮；formatDate 容错
+- `admin/public/js/pages/settings.js` — innerHTML→textContent
+- `admin/public/js/state.js` — fetch res.ok 检查
+- `admin/public/index.html` — 全局错误处理
+
+**实现功能：**
+- 关键词搜索（交易对象/颜色/品种/送货人/月份/仓库）
+- 作废原因全链路（App→MQTT→Web→SQLite→展示）
+- Web 永久删除 + 手机自动清理
+- 全量审查：修复 20+ 致命/高危漏洞
+- Release APK 正常联网
+
+### 2.21 第二十一阶段：初代版本 v1.0 收工
+
+**时间：**2026-06-07
+
+**版本概览：**
+
+| 指标 | 数值 |
+|---|---|
+| Flutter 源文件 | 11 个 |
+| Web 后端 | 7 个 JS 文件 |
+| Web 前端 | 10 个 JS/CSS/HTML |
+| 数据库版本 | v7 |
+| 表 | 2 张（warehouses + stock_movements） |
+| 字段 | 17 个（StockMovement） |
+| MQTT 主题 | 2 个（inbound + snapshot） |
+| 同步模式 | Master-Slave（Web 为主） |
+| 已修 Bug | 40+ |
+| APK | debug 115MB / release 56MB |
+
+**已知待改进：**
+- 硬编码 MQTT 凭据
+- TLS 证书验证关闭
+- flutter_bloc 状态管理未接入
+- 后台自动同步未实现
+- 单元/Widget 测试缺失
+- release 模式未充分测试
+
+**初代版本已收工，等待后续使用反馈。**
 8. 添加单元测试和 Widget 测试（flutter_test 已引入）。

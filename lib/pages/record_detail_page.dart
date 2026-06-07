@@ -91,13 +91,22 @@ class RecordDetailPage extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.red, width: 2),
               ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Column(
                 children: [
-                  Icon(Icons.cancel, color: Colors.red, size: 22),
-                  SizedBox(width: 8),
-                  Text('此记录已作废', style: TextStyle(
-                    color: Colors.red, fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.cancel, color: Colors.red, size: 22),
+                      SizedBox(width: 8),
+                      Text('此记录已作废', style: TextStyle(
+                        color: Colors.red, fontSize: 16, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  if (record.voidReason != null && record.voidReason!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('原因：${record.voidReason}',
+                      style: TextStyle(color: Colors.red.shade700, fontSize: 14)),
+                  ],
                 ],
               ),
             ),

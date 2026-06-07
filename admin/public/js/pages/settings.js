@@ -112,7 +112,7 @@ window.publishSnapshot = async function() {
 
   try {
     const data = await api.post('/api/sync/publish-snapshot');
-    result.innerHTML = '<span style="color:var(--green)">' + data.message + '</span>';
+    result.textContent = data.message;
     window.showToast(data.message, 'success');
   } catch (e) {
     result.innerHTML = '<span style="color:var(--red)">' + esc(e.message) + '</span>';

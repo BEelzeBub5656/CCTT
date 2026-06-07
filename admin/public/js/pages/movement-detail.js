@@ -39,6 +39,15 @@ export async function renderMovementDetail(id) {
           </div>
         </div>
 
+        ${r.isDeleted ? `
+        <div style="margin:0 28px 16px;padding:12px 16px;background:#fef2f2;border-radius:8px;border:2px solid #dc2626">
+          <div style="display:flex;align-items:center;gap:8px;color:#dc2626;font-weight:600;font-size:15px">
+            <i class="fa-solid fa-circle-xmark"></i> 此记录已作废
+          </div>
+          ${r.voidReason ? '<div style="margin-top:6px;color:#991b1b;font-size:13px">原因：' + esc(r.voidReason) + '</div>' : ''}
+        </div>
+        ` : ''}
+
         <!-- 基本信息 -->
         <div class="voucher-section">
           <div class="voucher-section-title">基本信息</div>
@@ -125,7 +134,7 @@ export async function renderMovementDetail(id) {
           </div>
           <div class="voucher-row highlight">
             <span class="voucher-label">总金额</span>
-            <span class="voucher-value">¥ ${r.totalAmount.toFixed(2)}</span>
+            <span class="voucher-value">¥ ${(r.totalAmount||0).toFixed(2)}</span>
           </div>
         </div>
       </div>

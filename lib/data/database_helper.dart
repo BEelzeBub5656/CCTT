@@ -10,7 +10,7 @@ import '../models/warehouse.dart';
 /// 支持多仓库库存管理，严格遵循 Offline-First 原则。
 class DatabaseHelper {
   static const String _databaseName = 'cctt_database.db';
-  static const int _databaseVersion = 6; // v6: 新增 imagePath 留档照片字段
+  static const int _databaseVersion = 7; // v7: 新增 voidReason 作废原因字段
 
   // 表名
   static const String _warehousesTable = 'warehouses';
@@ -98,6 +98,12 @@ class DatabaseHelper {
       await db.execute(
           'ALTER TABLE $_movementsTable ADD COLUMN imagePath TEXT');
     }
+
+    if (oldVersion < 7) {
+      // v6 → v7：新增 voidReason 作废原因字段（可空）
+      await db.execute(
+          'ALTER TABLE $_movementsTable ADD COLUMN voidReason TEXT');
+    }
   }
 
   /// 创建仓库表
@@ -110,7 +116,7 @@ class DatabaseHelper {
     ''');
   }
 
-  /// 创建库存移动记录表（v6，新增 imagePath 留档照片）
+  /// 创建库存移动记录表（v7，新增 voidReason 作废原因）
   Future<void> _createStockMovementsTable(Database db) async {
     await db.execute('''
       CREATE TABLE $_movementsTable (
@@ -130,6 +136,7 @@ class DatabaseHelper {
         deliveryPerson TEXT,
         isDeleted INTEGER NOT NULL DEFAULT 0,
         imagePath TEXT,
+        voidReason TEXT,
         FOREIGN KEY (warehouseId) REFERENCES $_warehousesTable(id)
           ON DELETE RESTRICT
       )

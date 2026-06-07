@@ -200,11 +200,11 @@ class SyncService {
       }
 
       // 3. 清理本地有但快照中没有的记录（Web 端已永久删除的）
-      // 安全保护：快照有足够多的记录时才算可信，防止空/残缺快照误删本地数据
+      // 安全保护：仅删除已同步的记录，保护本地未推送的 pending/failed 记录不被误删
       if (snapshotIds.length >= 3) {
         final localAfter = await dbHelper.getAllMovements();
         final toDelete = localAfter
-            .where((l) => !snapshotIds.contains(l.id))
+            .where((l) => l.syncStatus == SyncStatus.synced && !snapshotIds.contains(l.id))
             .map((l) => l.id)
             .toList();
         if (toDelete.isNotEmpty) {
