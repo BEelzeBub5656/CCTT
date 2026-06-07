@@ -26,15 +26,16 @@ th { background: #f0f0f0; font-weight: 600; }
 
 <h1>CCTT 项目开发记录文档</h1>
 <div class="meta">
-文档生成日期：2026-04-27<br>
+文档生成日期：2026-06-07<br>
 项目名称：CCTT（离线优先个人库存管理 App + Web 管理后台）<br>
-技术栈：Flutter + Dart + SQLite + MQTT + Google ML Kit + Node.js + Express + better-sqlite3
+技术栈：Flutter + Dart + SQLite + MQTT + Node.js + Express + better-sqlite3<br>
+最新数据库版本：v6（新增 imagePath 留档照片字段）
 </div>
 
 <div class="section">
 <h2>一、项目概述</h2>
 <p>CCTT 是一款基于 Flutter 开发的离线优先（Offline-First）个人库存管理应用。核心理念是：所有交易数据首先存入本地 SQLite 数据库，仅在检测到后端 PC API 可达时，才将未同步数据批量推送。</p>
-<p>App 支持多仓库管理，通过摄像头拍摄发票或从相册选择照片，利用 Google ML Kit 进行本地离线 OCR 识别，并自动提取交易对象、数量和单价信息。</p>
+<p>App 支持多仓库管理，可通过摄像头拍摄发票单据或从相册选择照片作为留档凭证，照片绑定到每条出入库记录，在详情页可全屏查看。</p>
 </div>
 
 <div class="section">
@@ -348,16 +349,16 @@ stock_movements 表（UUID 主键、时间戳、交易对象、仓库外键、�
 </td>
 </tr>
 <tr>
-<td><strong>AI / OCR 层</strong></td>
+<td><strong>拍照留档层</strong></td>
 <td>
 camera 摄像头预览与拍照（独立 StatefulWidget 生命周期管理，ResolutionPreset.medium）<br>
 image_picker 从系统相册选择照片（最大 1920×1920 压缩）<br>
-Google ML Kit 离线中文文本识别<br>
-正则提取发票信息（交易对象 + 数量 + 单价）<br>
-OCR 结果自动回填表单<br>
+照片自动保存到 app 私有目录 invoice_photos/，以记录 UUID 命名<br>
+imagePath 字段绑定照片到每条出入库记录<br>
+记录详情页展示留档照片，点击全屏查看 + 双指缩放<br>
+主页列表有照片的记录显示相机图标标记<br>
 相机权限动态申请（仅相机，不含麦克风）<br>
-相册读取权限申请（READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE）<br>
-ML Kit 异常捕获与友好错误提示
+相册读取权限申请（READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE）
 </td>
 </tr>
 <tr>
@@ -379,14 +380,13 @@ pending（橙色）与 synced（绿色）状态视觉区分<br>
 <td>
 目标仓库强制确认（Card + 校验）<br>
 入库/出库切换开关（SegmentedButton，绿色/红色）<br>
-拍照识别发票按钮 + 相册识别按钮<br>
+拍照留档按钮 + 相册选择按钮<br>
 交易对象、品名、送货人 表单字段<br>
 净重(kg) / 数量 输入框，支持表达式计算（如 146+92+131），按回车时自动回填<br>
 单价 (元/吨) 输入框<br>
 总件数、毛重(kg)、扣皮(kg) 可选字段<br>
 实时总金额计算（动态卡片）：公式为 (净重/1000) × 单价<br>
 表单校验（非空、正数、可选整数/小数）<br>
-识别 Loading 遮罩<br>
 无仓库时禁用操作<br>
 保存异常保护（try-catch + SnackBar）
 </td>
@@ -410,19 +410,16 @@ unknown 类型异常识别（SocketException 等）<br>
 <h2>四、待检查验证的功能（TODO）</h2>
 <p class="todo">以下功能已在代码层面实现，但尚未在真实环境或真机上充分验证：</p>
 
-<h3>1. 真机 OCR 识别准确率</h3>
-<p>google_mlkit_text_recognition 仅在移动端可用。需在真机上验证不同光照、角度、发票字体下的识别准确率，尤其是数量和单价的提取。</p>
-
-<h3>2. 后端 API 连通性</h3>
+<h3>1. 后端 API 连通性</h3>
 <p>SyncService._baseUrl 当前为占位符 100.x.x.x。需在后端部署完成后验证 Tailscale / WireGuard 组网及 POST /api/sync 接口。</p>
 
-<h3>3. 网络恢复后的自动同步</h3>
+<h3>2. 网络恢复后的自动同步</h3>
 <p>当前仅支持手动触发同步。尚未实现「网络恢复后自动同步」的后台机制（如 workmanager + connectivity_plus 监听）。</p>
 
-<h3>4. 大量数据下的列表性能</h3>
+<h3>3. 大量数据下的列表性能</h3>
 <p>当前 ListView.builder 未做分页，当记录数超过 1000 条时可能存在性能瓶颈。</p>
 
-<h3>5. 并发同步的边界情况</h3>
+<h3>4. 并发同步的边界情况</h3>
 <p>若用户在同步过程中新增记录，该记录不会被错误标记为 synced（读取 pending 列表在同步开始时完成），但需实际验证。</p>
 </div>
 
@@ -467,9 +464,9 @@ unknown 类型异常识别（SocketException 等）<br>
 <td>删除损坏的 NDK 目录，让 Gradle 重新下载</td>
 </tr>
 <tr>
-<td>真机点击拍照/相册按钮后 App 闪退（<strong class="todo">未解决</strong>）</td>
-<td>原因不明。初步猜测：Android 13+ 权限模型变化、image_picker 底层 Activity 生命周期异常、或 ML Kit 中文语言包未下载导致引擎初始化失败</td>
-<td>已尝试：降低分辨率、显式请求权限、增加异常捕获。真机测试仍闪退，需进一步排查 adb logcat 日志确定根因</td>
+<td>真机点击拍照/相册按钮后 App 闪退（<strong class="done">已解决 — 2026-06-07</strong>）</td>
+<td>Google ML Kit 中文 OCR 模型类 ChineseTextRecognizerOptions$Builder 未打包进 APK（OPPO 设备无 Google Play Services），拍照和选图正常但后续 OCR 步骤抛 NoClassDefFoundError</td>
+<td>移除 google_mlkit_text_recognition 依赖，删除全部 OCR 代码；拍照改为直接存档（保存到 app 私有目录 invoice_photos/，与记录 UUID 绑定）；按钮改为「拍照留档」「相册选择」；详情页新增照片查看（全屏+缩放）</td>
 </tr>
 <tr>
 <td>输入表达式后界面卡住</td>
@@ -495,9 +492,9 @@ unknown 类型异常识别（SocketException 等）<br>
 <td>PHB110（Android 16）真机上点击"拍照识别"或"相册识别"按钮后 App 直接闪退崩溃。已尝试：独立 StatefulWidget 生命周期管理、降低分辨率、显式权限申请、异常捕获。均无效。根因可能为：Android 13+ 权限模型变化、image_picker 底层 Activity 生命周期异常、ML Kit 中文语言包未下载。需通过 adb logcat 进一步排查。</td>
 </tr>
 <tr>
-<td class="risk">camera / ML Kit 不支持 Windows / Web</td>
-<td class="star">★★★</td>
-<td>google_mlkit_text_recognition 和 camera 插件均不支持 Windows 桌面端。在 Windows 上运行到相机逻辑时会抛出运行时异常。开发调试需使用 Android 模拟器或真机。</td>
+<td class="risk">camera 不支持 Windows / Web</td>
+<td class="star">★★☆</td>
+<td>camera 和 image_picker 插件不支持 Windows 桌面端。在 Windows 上开发调试需使用 Android 模拟器或真机。生产使用仅限 Android/iOS。</td>
 </tr>
 <tr>
 <td class="risk">硬编码后端地址（<strong>已解决</strong>）</td>
@@ -519,11 +516,7 @@ unknown 类型异常识别（SocketException 等）<br>
 <td class="star">★★☆</td>
 <td>当前仅做一次请求，失败即返回。没有指数退避重试、断点续传或离线队列持久化。网络抖动导致偶发失败需用户手动再次点击。</td>
 </tr>
-<tr>
-<td class="risk">OCR 正则的鲁棒性</td>
-<td class="star">★★☆</td>
-<td>正则仅匹配特定关键词（收款方/数量/单价等）。若发票格式变化，正则将失效。建议增加识别结果确认弹窗。</td>
-</tr>
+
 <tr>
 <td class="risk">无数据加密</td>
 <td class="star">★★☆</td>
@@ -550,15 +543,16 @@ unknown 类型异常识别（SocketException 等）<br>
 
 │   ├── pages/
 │   │   ├── home_page.dart                    主页（列表 + 仓库筛选 + 同步按钮 + 设置弹窗）
-│   │   └── add_record_page.dart              新建页（仓库确认 + 入出库 + 相机/相册 OCR + 表达式计算）<br>
-│   │                                           <strong>注：真机相机/相册闪退，待排查</strong>
+│   │   ├── add_record_page.dart              新建页（仓库确认 + 入出库 + 拍照留档 + 表达式计算）<br>
+│   │   ├── record_detail_page.dart             单据详情页（含留档照片查看）<br>
+│   │   └── edit_record_page.dart               编辑记录页
 │   └── services/
 │       └── sync_service.dart                 P2P 同步服务（Dio，动态读取 SharedPreferences 配置）
 │   ├── models/
-│   │   ├── stock_movement.dart               库存移动记录模型（v3 版，含毛厂出库单扩展字段）
+│   │   ├── stock_movement.dart               库存移动记录模型（v6 版，含 imagePath 照片字段）
 │   │   └── warehouse.dart                    仓库模型
 │   ├── data/
-│   │   └── database_helper.dart              SQLite 单例（数据库版本 3， ALTER TABLE 迁移）
+│   │   └── database_helper.dart              SQLite 单例（数据库版本 6， ALTER TABLE 迁移 v1→v6）
 └── windows/ linux/ ios/ android/ macos/ web/  原生平台工程</div>
 </div>
 
@@ -632,6 +626,45 @@ unknown 类型异常识别（SocketException 等）<br>
 <li>AppBar 双向状态指示器：☁️↑ 红色角标（待推送数量）+ ☁️↓ teal 角标/绿色图标（云端新数据/已同步）</li>
 </ul>
 
+<h3>2.17 第十七阶段：OCR 闪退修复 + 照片留档功能（v6）</h3>
+<p><strong>时间：</strong>2026-06-07</p>
+<p><strong>背景：</strong>真机上点击「拍照识别」或「相册识别」按钮后 App 闪退。经 adb logcat 排查，根因确认为：</p>
+<div class="code">FATAL EXCEPTION: main
+java.lang.NoClassDefFoundError: Failed resolution of:
+  Lcom/google/mlkit/vision/text/chinese/ChineseTextRecognizerOptions$Builder;
+  at TextRecognizer.initialize()
+  at TextRecognizer.handleDetection()</div>
+<p><strong>根因：</strong><code>TextRecognizer(script: TextRecognitionScript.chinese)</code> 触发中文 OCR 模型类加载，但 <code>ChineseTextRecognizerOptions$Builder</code> 未打包进 APK（OPPO 设备无 Google Play Services，ML Kit 中文模型不可用）。拍照和选图功能本身正常，崩溃发生在后续的 OCR 步骤。</p>
+
+<p><strong>修改决策：</strong>既然发票是中文的，且 OPPO 设备上 Google ML Kit 中文模型不可用，与其继续与不可靠的本地 OCR 较劲，不如将拍照定位为「留档凭证」——照片绑定到每条记录，后期查证时直接看原始照片比 OCR 识别更可靠。</p>
+
+<p><strong>修改文件：</strong></p>
+<ul>
+<li><code>lib/pages/add_record_page.dart</code> — 移除 OCR 全部代码（_processOcrImage、_recognizeInvoice、_OcrResult 类），改为 _savePhotoToStorage；按钮标签改为「拍照留档」「相册选择」</li>
+<li><code>lib/models/stock_movement.dart</code> — 新增 <code>String? imagePath</code> 字段，覆盖 constructor / toJson / fromJson / copyWith</li>
+<li><code>lib/data/database_helper.dart</code> — 数据库版本 5→6；ALTER TABLE ADD COLUMN imagePath TEXT；建表语句同步更新</li>
+<li><code>lib/pages/record_detail_page.dart</code> — 新增「留档照片」卡片（Card + Image.file），点击全屏查看（Dialog.fullscreen + InteractiveViewer 支持双指缩放）</li>
+<li><code>lib/pages/home_page.dart</code> — 列表卡片有照片的记录在仓库/时间行显示 📷 小图标</li>
+<li><code>pubspec.yaml</code> — 移除 google_mlkit_text_recognition: ^0.14.0 和 image: ^4.5.2 依赖</li>
+</ul>
+
+<p><strong>照片存储流程：</strong></p>
+<div class="code">拍照/选图
+  → 拷贝到 app 私有目录 invoice_photos/temp_{timestamp}.jpg
+  → _capturedImagePath 暂存
+  → 保存记录时用 record UUID 重命名为 {uuid}.jpg
+  → imagePath 字段写入 SQLite</div>
+
+<p><strong>实现功能：</strong></p>
+<ul class="done">
+<li>拍照和相册选择不再闪退（确认通过 adb logcat 验证）</li>
+<li>照片自动保存到 app 私有存储目录，与记录 UUID 绑定</li>
+<li>记录详情页展示留档照片，点击可全屏缩放查看</li>
+<li>主页列表有照片的记录显示相机图标标记</li>
+<li>数据库平滑迁移 v5→v6（ALTER TABLE，不丢数据）</li>
+<li>移除不可用的 google_mlkit_text_recognition 依赖，APK 体积减小</li>
+</ul>
+
 <div class="section">
 <h2>八、后续开发建议</h2>
 <ol>
@@ -640,7 +673,7 @@ unknown 类型异常识别（SocketException 等）<br>
 <li><strong>（已完成）</strong>手机端启动时自动检测云端差异，双向同步状态指示。</li>
 <li>引入 flutter_bloc + get_it 重构状态管理，替换现有 setState。</li>
 <li>实现后台自动同步（connectivity_plus 监听网络恢复 + workmanager 定时任务）。</li>
-<li>为 OCR 增加「识别结果确认」弹窗，允许用户在回填前手动修正。</li>
+<li>如有需要，可接入云端 OCR API（如百度 OCR、阿里云 OCR）实现中文发票智能识别。</li>
 <li>添加库存统计报表（按仓库计算实时库存 = 入库合计 − 出库合计）。</li>
 <li>添加单元测试和 Widget 测试（flutter_test 已引入）。</li>
 </ol>

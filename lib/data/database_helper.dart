@@ -10,7 +10,7 @@ import '../models/warehouse.dart';
 /// 支持多仓库库存管理，严格遵循 Offline-First 原则。
 class DatabaseHelper {
   static const String _databaseName = 'cctt_database.db';
-  static const int _databaseVersion = 5; // v5: 新增 isDeleted 软删除字段
+  static const int _databaseVersion = 6; // v6: 新增 imagePath 留档照片字段
 
   // 表名
   static const String _warehousesTable = 'warehouses';
@@ -53,6 +53,7 @@ class DatabaseHelper {
   /// - v2 → v3：平滑添加毛厂出库单扩展字段（ALTER TABLE ADD COLUMN）
   /// - v3 → v4：拆分 productName → color + variety，不丢失任何数据
   /// - v4 → v5：新增 isDeleted 软删除字段（INTEGER DEFAULT 0）
+  /// - v5 → v6：新增 imagePath 留档照片字段（TEXT，可为 NULL）
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // 删除旧版 transaction_records 表（如有）
@@ -91,6 +92,12 @@ class DatabaseHelper {
       await db.execute(
           'ALTER TABLE $_movementsTable ADD COLUMN isDeleted INTEGER NOT NULL DEFAULT 0');
     }
+
+    if (oldVersion < 6) {
+      // v5 → v6：新增 imagePath 留档照片字段（可空）
+      await db.execute(
+          'ALTER TABLE $_movementsTable ADD COLUMN imagePath TEXT');
+    }
   }
 
   /// 创建仓库表
@@ -103,7 +110,7 @@ class DatabaseHelper {
     ''');
   }
 
-  /// 创建库存移动记录表（v5，新增 isDeleted 软删除）
+  /// 创建库存移动记录表（v6，新增 imagePath 留档照片）
   Future<void> _createStockMovementsTable(Database db) async {
     await db.execute('''
       CREATE TABLE $_movementsTable (
@@ -122,6 +129,7 @@ class DatabaseHelper {
         totalPieces INTEGER,
         deliveryPerson TEXT,
         isDeleted INTEGER NOT NULL DEFAULT 0,
+        imagePath TEXT,
         FOREIGN KEY (warehouseId) REFERENCES $_warehousesTable(id)
           ON DELETE RESTRICT
       )

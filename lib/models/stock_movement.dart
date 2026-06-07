@@ -5,7 +5,7 @@ enum SyncStatus { pending, syncing, synced, failed }
 
 /// 库存移动记录模型（毛纺厂专用版）
 ///
-/// 对应 SQLite 表 `stock_movements`（v5）。
+/// 对应 SQLite 表 `stock_movements`（v6）。
 ///
 /// 计重逻辑：
 /// - [grossWeight] = 毛重（地磅读数）
@@ -17,6 +17,9 @@ enum SyncStatus { pending, syncing, synced, failed }
 /// 软删除：
 /// - [isDeleted] = false 时正常显示
 /// - [isDeleted] = true  时列表中划线 + 灰字 + [已作废] 标签
+///
+/// 留档照片：
+/// - [imagePath] = 发票/单据照片在本地存储的路径，可为 null
 class StockMovement {
   /// 全局唯一标识符（UUID v4）
   final String id;
@@ -68,6 +71,9 @@ class StockMovement {
   /// 软删除标志（v5）
   final bool isDeleted;
 
+  /// 留档照片本地路径（v6）
+  final String? imagePath;
+
   StockMovement({
     String? id,
     required this.timestamp,
@@ -84,6 +90,7 @@ class StockMovement {
     this.totalPieces,
     this.deliveryPerson,
     this.isDeleted = false,
+    this.imagePath,
   }) : id = id ?? const Uuid().v4();
 
   /// 总金额（元）= (净重 kg / 1000) × 单价(元/吨)
@@ -109,6 +116,7 @@ class StockMovement {
         'totalPieces': totalPieces,
         'deliveryPerson': deliveryPerson,
         'isDeleted': isDeleted ? 1 : 0,
+        'imagePath': imagePath,
       };
 
   /// 从 JSON/Map 解析，所有字段均有安全兜底，防止 `type 'Null' is not a subtype` 崩溃
@@ -129,6 +137,7 @@ class StockMovement {
         totalPieces: json['totalPieces'] as int?,
         deliveryPerson: json['deliveryPerson'] as String?,
         isDeleted: (json['isDeleted'] as int?) == 1,
+        imagePath: json['imagePath'] as String?,
       );
 
   StockMovement copyWith({
@@ -147,6 +156,7 @@ class StockMovement {
     int? totalPieces,
     String? deliveryPerson,
     bool? isDeleted,
+    String? imagePath,
   }) =>
       StockMovement(
         id: id ?? this.id,
@@ -164,6 +174,7 @@ class StockMovement {
         totalPieces: totalPieces ?? this.totalPieces,
         deliveryPerson: deliveryPerson ?? this.deliveryPerson,
         isDeleted: isDeleted ?? this.isDeleted,
+        imagePath: imagePath ?? this.imagePath,
       );
 
   // ───── 安全解析辅助 ─────

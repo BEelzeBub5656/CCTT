@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -81,6 +83,11 @@ class RecordDetailPage extends StatelessWidget {
         children: [
           // ───── 头部概览卡片 ─────
           _buildHeaderCard(),
+          const SizedBox(height: 16),
+
+          // ───── 留档照片 ─────
+          if (record.imagePath != null && File(record.imagePath!).existsSync())
+            _buildPhotoCard(),
           const SizedBox(height: 16),
 
           // ───── 基本信息 ─────
@@ -254,6 +261,100 @@ class RecordDetailPage extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ───── 留档照片卡片 ─────
+  Widget _buildPhotoCard() {
+    return Card(
+      elevation: 1,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
+              children: [
+                Icon(Icons.camera_alt_outlined,
+                    size: 18, color: Colors.grey.shade600),
+                const SizedBox(width: 6),
+                Text(
+                  '留档照片',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (_) => Dialog.fullscreen(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      InteractiveViewer(
+                        child: Image.file(
+                          File(record.imagePath!),
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Center(
+                            child: Icon(Icons.broken_image, size: 64),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: MediaQuery.of(context).padding.top + 8,
+                        right: 16,
+                        child: CircleAvatar(
+                          backgroundColor: Colors.black54,
+                          child: IconButton(
+                            icon: const Icon(Icons.close, color: Colors.white),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+            child: Image.file(
+              File(record.imagePath!),
+              fit: BoxFit.cover,
+              width: double.infinity,
+              errorBuilder: (_, __, ___) => Container(
+                height: 200,
+                color: Colors.grey.shade100,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.broken_image,
+                          size: 48, color: Colors.grey.shade400),
+                      const SizedBox(height: 8),
+                      Text('照片无法加载',
+                          style: TextStyle(color: Colors.grey.shade500)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Text(
+              '点击照片可全屏查看',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -26,9 +26,10 @@ class _HomePageState extends State<HomePage> {
   List<StockMovement> _movements = [];
   List<Warehouse> _warehouses = [];
   bool _isLoading = true;
-  int _unpushedCount = 0; // 本地未推送到云端的记录数
-  int _cloudNewCount = 0; // 云端比本地多出的记录数（上次自动拉取的结果）
+  int _unpushedCount = 0;
+  int _cloudNewCount = 0;
   bool _cloudChecked = false;
+  double _longPressDuration = 3.0; // 缓存长按时长，避免 onTapDown 中异步读取
 
   /// null 表示「所有仓库」
   String? _selectedWarehouseId;
@@ -39,10 +40,17 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    _initSettings();
     _loadData().then((_) {
       _checkUnpushedRecords();
       _autoPullFromCloud();
     });
+  }
+
+  /// 预加载设置项（同步缓存，避免手势回调中 await）
+  Future<void> _initSettings() async {
+    final duration = await SettingsService.getLongPressDuration();
+    if (mounted) setState(() => _longPressDuration = duration);
   }
 
   /// 加载所有数据
@@ -223,6 +231,7 @@ class _HomePageState extends State<HomePage> {
 
   /// 跳转到新建页面
   Future<void> _navigateToAdd() async {
+    _cancelLongPress();
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const AddRecordPage()),
     );
@@ -414,9 +423,12 @@ class _HomePageState extends State<HomePage> {
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: '设置中心',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SettingsPage()),
-            ),
+            onPressed: () {
+              _cancelLongPress();
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
+              );
+            },
           ),
         ],
       ),
@@ -605,10 +617,8 @@ class _HomePageState extends State<HomePage> {
     );
 
     return GestureDetector(
-      onTapDown: (_) async {
-        final duration = await SettingsService.getLongPressDuration();
-        if (!mounted) return;
-        _startLongPress(record, duration);
+      onTapDown: (_) {
+        _startLongPress(record, _longPressDuration);
       },
       onTapUp: (_) => _cancelLongPress(),
       onTapCancel: () => _cancelLongPress(),
@@ -697,12 +707,26 @@ class _HomePageState extends State<HomePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 4),
-              Text(
-                '${_warehouseName(record.warehouseId)}  •  ${_formatTimestamp(record.timestamp)}',
-                style: TextStyle(
-                  color: isDeleted ? Colors.grey.shade400 : null,
-                  decoration: isDeleted ? TextDecoration.lineThrough : null,
-                ),
+              Row(
+                children: [
+                  Text(
+                    '${_warehouseName(record.warehouseId)}  •  ${_formatTimestamp(record.timestamp)}',
+                    style: TextStyle(
+                      color: isDeleted ? Colors.grey.shade400 : null,
+                      decoration:
+                          isDeleted ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
+                  if (record.imagePath != null && record.imagePath!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: Icon(
+                        Icons.camera_alt,
+                        size: 14,
+                        color: Colors.teal.shade300,
+                      ),
+                    ),
+                ],
               ),
               Text(
                 '净重 ${record.quantity.toStringAsFixed(2)} kg  |  单价 ¥${record.unitPrice.toStringAsFixed(2)}/吨',

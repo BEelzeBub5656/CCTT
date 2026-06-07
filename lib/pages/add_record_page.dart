@@ -1,7 +1,9 @@
+import 'dart:io';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
 
@@ -39,6 +41,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
 
   bool _isSaving = false;
   bool _isScanning = false;
+  String? _capturedImagePath; // 拍照/选图后保存的本地照片路径
 
   @override
   void initState() {
@@ -119,8 +122,25 @@ class _AddRecordPageState extends State<AddRecordPage> {
           ? null
           : int.tryParse(_totalPiecesController.text.trim());
 
+      final recordId = const Uuid().v4();
+
+      // 如有留档照片，用 record ID 重命名，避免临时文件名冲突
+      String? finalImagePath;
+      if (_capturedImagePath != null) {
+        try {
+          final dir = await getApplicationDocumentsDirectory();
+          final photoDir = Directory('${dir.path}/invoice_photos');
+          final destFile = File('${photoDir.path}/$recordId.jpg');
+          await File(_capturedImagePath!).rename(destFile.path);
+          finalImagePath = destFile.path;
+        } catch (e) {
+          debugPrint('照片重命名失败，保留原路径: $e');
+          finalImagePath = _capturedImagePath; // 兜底：保留临时路径
+        }
+      }
+
       final record = StockMovement(
-        id: const Uuid().v4(),
+        id: recordId,
         timestamp: DateTime.now().millisecondsSinceEpoch,
         partnerName: _partnerController.text.trim(),
         warehouseId: _selectedWarehouseId!,
@@ -136,6 +156,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
         deliveryPerson: _deliveryPersonController.text.trim().isEmpty
             ? null
             : _deliveryPersonController.text.trim(),
+        imagePath: finalImagePath,
       );
 
       await DatabaseHelper.instance.insertMovement(record);
@@ -177,9 +198,9 @@ class _AddRecordPageState extends State<AddRecordPage> {
     }
   }
 
-  // ───── OCR 扫描 ─────
+  // ───── 拍照存档 ─────
 
-  /// 从相机拍照识别
+  /// 从相机拍照留档
   Future<void> _scanInvoiceFromCamera() async {
     try {
       final status = await Permission.camera.request();
@@ -205,17 +226,17 @@ class _AddRecordPageState extends State<AddRecordPage> {
       );
 
       if (imageFile == null || !mounted) return;
-      await _processOcrImage(imageFile.path, source: '相机');
+      await _savePhotoToStorage(imageFile.path, source: '相机');
     } catch (e, stackTrace) {
-      debugPrint('相机扫描异常: $e');
+      debugPrint('拍照异常: $e');
       debugPrint('StackTrace: $stackTrace');
       if (mounted) {
-        _showSnackBar('相机扫描异常：$e');
+        _showSnackBar('拍照异常：$e');
       }
     }
   }
 
-  /// 从相册选择照片识别
+  /// 从相册选择照片留档
   Future<void> _scanInvoiceFromGallery() async {
     try {
       final status = await Permission.photos.request();
@@ -233,7 +254,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
       );
 
       if (picked == null || !mounted) return;
-      await _processOcrImage(picked.path, source: '相册');
+      await _savePhotoToStorage(picked.path, source: '相册');
     } catch (e, stackTrace) {
       debugPrint('相册选择异常: $e');
       debugPrint('StackTrace: $stackTrace');
@@ -243,89 +264,35 @@ class _AddRecordPageState extends State<AddRecordPage> {
     }
   }
 
-  /// 处理 OCR 识别（相机或相册共用）
-  Future<void> _processOcrImage(String imagePath,
+  /// 将照片拷贝到 app 私有存储目录，留档备用
+  Future<void> _savePhotoToStorage(String sourcePath,
       {required String source}) async {
     setState(() => _isScanning = true);
 
     try {
-      final result = await _recognizeInvoice(imagePath);
+      final dir = await getApplicationDocumentsDirectory();
+      final photoDir = Directory('${dir.path}/invoice_photos');
+      if (!await photoDir.exists()) {
+        await photoDir.create(recursive: true);
+      }
+
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final destPath = '${photoDir.path}/temp_$timestamp.jpg';
+      await File(sourcePath).copy(destPath);
 
       if (mounted) {
-        setState(() => _isScanning = false);
-        if (result != null) {
-          _partnerController.text = result.partnerName ?? '';
-          if (result.quantity != null) {
-            _grossWeightController.text = result.quantity!;
-            setState(() {}); // 刷新净重
-          }
-          if (result.unitPrice != null) {
-            _unitPriceController.text = result.unitPrice!;
-            setState(() {}); // 刷新总金额
-          }
-          _showSnackBar('$source 识别成功，已自动填充部分字段');
-        } else {
-          _showSnackBar('$source 未能识别到有效信息，请手动输入');
-        }
+        setState(() {
+          _isScanning = false;
+          _capturedImagePath = destPath;
+        });
+        _showSnackBar('$source 照片已保存，请继续填写信息');
       }
     } catch (e) {
-      debugPrint('OCR 识别出错: $e');
+      debugPrint('保存照片失败: $e');
       if (mounted) {
         setState(() => _isScanning = false);
-        _showSnackBar('识别失败：$e');
+        _showSnackBar('保存照片失败：$e');
       }
-    }
-  }
-
-  /// OCR 识别 + 正则提取
-  Future<_OcrResult?> _recognizeInvoice(String imagePath) async {
-    final inputImage = InputImage.fromFilePath(imagePath);
-    final textRecognizer =
-        TextRecognizer(script: TextRecognitionScript.chinese);
-
-    try {
-      final recognizedText = await textRecognizer.processImage(inputImage);
-      final fullText = recognizedText.text;
-
-      debugPrint('===== OCR 原始文本 =====');
-      debugPrint(fullText);
-      debugPrint('========================');
-
-      final partnerPattern = RegExp(
-        r'(?:收款方|交易对象|对方)[：:\s]+([^\n]+)',
-        caseSensitive: false,
-      );
-      final partnerMatch = partnerPattern.firstMatch(fullText);
-      final partner = partnerMatch?.group(1)?.trim();
-
-      final quantityPattern = RegExp(
-        r'(?:数量|Qty|Quantity|毛重|净重)[：:\s]+([\d,]+\.?\d*)',
-        caseSensitive: false,
-      );
-      final quantityMatch = quantityPattern.firstMatch(fullText);
-      final quantity = quantityMatch?.group(1)?.replaceAll(',', '');
-
-      final unitPricePattern = RegExp(
-        r'(?:单价|Unit Price|Price)[：:\s]+[¥￥]?\s*([\d,]+\.?\d*)',
-        caseSensitive: false,
-      );
-      final unitPriceMatch = unitPricePattern.firstMatch(fullText);
-      final unitPrice = unitPriceMatch?.group(1)?.replaceAll(',', '');
-
-      return _OcrResult(
-        partnerName: partner,
-        quantity: quantity,
-        unitPrice: unitPrice,
-      );
-    } on Exception catch (e) {
-      debugPrint('ML Kit 识别异常: $e');
-      if (e.toString().contains('TextRecognizer')) {
-        throw Exception(
-            'OCR 引擎初始化失败，请确保设备已下载中文语言包且内存充足');
-      }
-      rethrow;
-    } finally {
-      await textRecognizer.close();
     }
   }
 
@@ -365,7 +332,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
                               ? null
                               : _scanInvoiceFromCamera,
                           icon: const Icon(Icons.camera_alt_outlined),
-                          label: const Text('拍照识别'),
+                          label: const Text('拍照留档'),
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
@@ -378,7 +345,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
                               ? null
                               : _scanInvoiceFromGallery,
                           icon: const Icon(Icons.photo_library_outlined),
-                          label: const Text('相册识别'),
+                          label: const Text('相册选择'),
                           style: OutlinedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
@@ -982,15 +949,6 @@ class _CameraPreviewDialogState extends State<_CameraPreviewDialog> {
       ),
     );
   }
-}
-
-/// OCR 识别结果临时封装
-class _OcrResult {
-  final String? partnerName;
-  final String? quantity;
-  final String? unitPrice;
-
-  _OcrResult({this.partnerName, this.quantity, this.unitPrice});
 }
 
 // ───────────────────────────────────────────────
