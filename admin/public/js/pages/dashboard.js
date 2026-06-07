@@ -41,7 +41,7 @@ export async function renderDashboard() {
         <div class="stat-card">
           <div class="stat-icon amber"><i class="fa-solid fa-clock"></i></div>
           <div>
-            <div class="stat-value">${stats.movementsBySyncStatus.pending + stats.movementsBySyncStatus.failed}</div>
+            <div class="stat-value">${(stats.movementsBySyncStatus?.pending||0) + (stats.movementsBySyncStatus?.failed||0)}</div>
             <div class="stat-label">待处理同步</div>
           </div>
         </div>
@@ -49,7 +49,7 @@ export async function renderDashboard() {
         <div class="stat-card">
           <div class="stat-icon blue"><i class="fa-solid fa-scale-balanced"></i></div>
           <div>
-            <div class="stat-value">${stats.movementsByType.inbound} <span style="font-size:14px;color:var(--green)">入</span> / ${stats.movementsByType.outbound} <span style="font-size:14px;color:var(--red)">出</span></div>
+            <div class="stat-value">${stats.movementsByType?.inbound||0} <span style="font-size:14px;color:var(--green)">入</span> / ${stats.movementsByType?.outbound||0} <span style="font-size:14px;color:var(--red)">出</span></div>
             <div class="stat-label">入库 / 出库</div>
           </div>
         </div>
@@ -92,8 +92,8 @@ function renderRecentTable(records) {
             <td><strong>${esc(r.partnerName)}</strong></td>
             <td>${esc(r.color||'-')} / ${esc(r.variety||'-')}</td>
             <td>${esc(r.warehouseName||'-')}</td>
-            <td style="font-family:var(--font-mono)">${r.quantity.toFixed(1)}</td>
-            <td style="font-family:var(--font-mono);font-weight:600">${r.totalAmount.toFixed(2)}</td>
+            <td style="font-family:var(--font-mono)">${(r.quantity||0).toFixed(1)}</td>
+            <td style="font-family:var(--font-mono);font-weight:600">${(r.totalAmount||0).toFixed(2)}</td>
             <td>${syncBadge(r.syncStatus)}</td>
           </tr>
         `).join('')}
@@ -115,5 +115,5 @@ export function syncBadge(status) {
 
 export function esc(s) {
   if (!s) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }

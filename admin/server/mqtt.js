@@ -19,11 +19,25 @@ function getSyncEvents() {
   return [...syncEvents];
 }
 
+// 快照发布去抖（避免短时间大量触发）
+let snapshotTimer = null;
+function debouncedPublishSnapshot(label) {
+  if (snapshotTimer) clearTimeout(snapshotTimer);
+  snapshotTimer = setTimeout(() => {
+    snapshotTimer = null;
+    publishSnapshot()
+      .then(r => console.log('[MQTT] ' + label + ' → 快照已发布: ' + r.recordCount + ' 条'))
+      .catch(e => console.error('[MQTT] ' + label + ' → 快照发布失败:', e.message));
+  }, 800);
+}
+
 // ── 数据写入辅助 ──
 
 function upsertRecordsAndWarehouses(records, warehouses) {
   const db = getDb();
-  const insertWh = db.prepare('INSERT OR REPLACE INTO warehouses (id, name) VALUES (?, ?)');
+  // 仓库：先尝试 INSERT，已存在则只更新 name（避免 FK REPLACE 冲突）
+  const insertWh = db.prepare('INSERT OR IGNORE INTO warehouses (id, name) VALUES (?, ?)');
+  const updateWh = db.prepare('UPDATE warehouses SET name = ? WHERE id = ?');
   const insertMovement = db.prepare(`
     INSERT OR REPLACE INTO stock_movements
       (id, timestamp, partnerName, warehouseId, type, quantity, unitPrice, syncStatus,
@@ -31,18 +45,30 @@ function upsertRecordsAndWarehouses(records, warehouses) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const transaction = db.transaction(() => {
-    for (const wh of warehouses) {
-      if (!wh.id || !wh.name) continue;
-      insertWh.run(wh.id, wh.name);
+  // 先写入仓库：新仓库直接插入，已存在的更新名称
+  for (const wh of warehouses) {
+    if (!wh.id || !wh.name) continue;
+    try {
+      const result = insertWh.run(wh.id, wh.name);
+      if (result.changes === 0) {
+        updateWh.run(wh.name, wh.id);
+      }
+    } catch (e) {
+      console.error('[MQTT] 仓库写入失败:', wh.id, e.message);
     }
-    for (const rec of records) {
-      if (!rec.id) continue;
+  }
+
+  // 逐条写入记录
+  let inserted = 0, skipped = 0;
+  for (const rec of records) {
+    if (!rec.id) continue;
+    if (!rec.warehouseId) { skipped++; continue; }
+    try {
       insertMovement.run(
         rec.id,
         rec.timestamp || Date.now(),
         rec.partnerName || '',
-        rec.warehouseId || '',
+        rec.warehouseId,
         rec.type || 'outbound',
         rec.quantity || 0,
         rec.unitPrice || 0,
@@ -55,10 +81,13 @@ function upsertRecordsAndWarehouses(records, warehouses) {
         rec.deliveryPerson || null,
         rec.isDeleted || 0,
       );
+      inserted++;
+    } catch (e) {
+      console.error('[MQTT] 记录写入失败:', rec.id, e.message);
+      skipped++;
     }
-  });
-
-  transaction();
+  }
+  if (skipped > 0) console.log('[MQTT] 写入: ' + inserted + ' 条, 跳过: ' + skipped + ' 条');
 }
 
 // ── 长连接订阅者 ──
@@ -87,17 +116,30 @@ function startSubscriber() {
     connectionState.connected = true;
     connectionState.error = null;
 
+    // 订阅增量数据主题
     client.subscribe(inboundTopic, { qos: 1 }, (err) => {
       if (err) {
-        console.error('[MQTT] 订阅失败:', err.message);
-        connectionState.error = err.message;
+        console.error('[MQTT] 订阅 inbound 失败:', err.message);
       } else {
-        console.log('[MQTT] 已订阅主题:', inboundTopic);
+        console.log('[MQTT] 已订阅:', inboundTopic);
+      }
+    });
+
+    // 同时订阅快照主题（retain），启动时立即加载已存在的全量快照
+    const snapshotTopic = process.env.MQTT_TOPIC_SNAPSHOT || 'cctt/sync/snapshot';
+    client.subscribe(snapshotTopic, { qos: 1 }, (err) => {
+      if (err) {
+        console.error('[MQTT] 订阅 snapshot 失败:', err.message);
+      } else {
+        console.log('[MQTT] 已订阅:', snapshotTopic, '(等待 retain 快照...)');
       }
     });
   });
 
-  client.on('message', (topic, payload) => {
+  const snapshotTopic = process.env.MQTT_TOPIC_SNAPSHOT || 'cctt/sync/snapshot';
+
+  client.on('message', async (topic, payload) => {
+    const isSnapshot = topic === snapshotTopic;
     try {
       const data = JSON.parse(payload.toString('utf8'));
       const records = Array.isArray(data.records) ? data.records : [];
@@ -109,7 +151,17 @@ function startSubscriber() {
       connectionState.lastSyncCount = records.length;
       logSyncEvent(records.length, warehouses.length, true);
 
-      console.log('[MQTT] 收到同步数据: ' + records.length + ' 条记录, ' + warehouses.length + ' 个仓库');
+      console.log('[MQTT] 收到' + (isSnapshot ? '快照' : '增量') + ': ' + records.length + ' 条记录, ' + warehouses.length + ' 个仓库');
+
+      // 只有增量消息才触发自动快照发布（避免死循环）
+      if (!isSnapshot) {
+        try {
+          const result = await publishSnapshot();
+          console.log('[MQTT] 自动快照已发布: ' + result.recordCount + ' 条记录');
+        } catch (snapErr) {
+          console.error('[MQTT] 自动快照发布失败:', snapErr.message);
+        }
+      }
     } catch (err) {
       console.error('[MQTT] 消息解析失败:', err.message);
       logSyncEvent(0, 0, false, err.message);
@@ -199,4 +251,4 @@ function publishSnapshot() {
   });
 }
 
-module.exports = { startSubscriber, publishSnapshot, getConnectionState, getSyncEvents };
+module.exports = { startSubscriber, publishSnapshot, getConnectionState, getSyncEvents, debouncedPublishSnapshot };

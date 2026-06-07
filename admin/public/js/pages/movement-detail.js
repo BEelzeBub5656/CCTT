@@ -15,8 +15,8 @@ export async function renderMovementDetail(id) {
     const r = await api.get('/api/movements/' + id);
 
     // 毛重-扣皮 校验
-    const netFromGross = r.grossWeight - r.tareWeight;
-    const diff = Math.abs(netFromGross - r.quantity);
+    const netFromGross = (r.grossWeight||0) - (r.tareWeight||0);
+    const diff = Math.abs(netFromGross - (r.quantity||0));
     const isNetMatch = diff < 0.01;
 
     main.innerHTML = `
@@ -35,7 +35,7 @@ export async function renderMovementDetail(id) {
           </div>
           <div style="text-align:right">
             <div class="amount-label">总金额</div>
-            <div class="amount-large">¥ ${r.totalAmount.toFixed(2)}</div>
+            <div class="amount-large">¥ ${(r.totalAmount||0).toFixed(2)}</div>
           </div>
         </div>
 
@@ -102,7 +102,7 @@ export async function renderMovementDetail(id) {
           </div>
           <div class="voucher-row highlight">
             <span class="voucher-label">净重</span>
-            <span class="voucher-value">${r.quantity.toFixed(1)} kg</span>
+            <span class="voucher-value">${(r.quantity||0).toFixed(1)} kg</span>
           </div>
           ${r.grossWeight > 0 ? `
             <div class="voucher-row" style="margin-top:4px">
@@ -117,11 +117,11 @@ export async function renderMovementDetail(id) {
           <div class="voucher-section-title">金额明细</div>
           <div class="voucher-row">
             <span class="voucher-label">单价</span>
-            <span class="voucher-value" style="font-family:var(--font-mono)">${r.unitPrice.toFixed(2)} 元/吨</span>
+            <span class="voucher-value" style="font-family:var(--font-mono)">${(r.unitPrice||0).toFixed(2)} 元/吨</span>
           </div>
           <div class="voucher-row">
             <span class="voucher-label">计算公式</span>
-            <span class="voucher-value" style="font-size:13px">(${r.quantity.toFixed(1)} kg ÷ 1000) × ${r.unitPrice.toFixed(2)} 元/吨</span>
+            <span class="voucher-value" style="font-size:13px">(${(r.quantity||0).toFixed(1)} kg ÷ 1000) × ${(r.unitPrice||0).toFixed(2)} 元/吨</span>
           </div>
           <div class="voucher-row highlight">
             <span class="voucher-label">总金额</span>

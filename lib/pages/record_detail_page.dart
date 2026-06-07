@@ -81,13 +81,34 @@ class RecordDetailPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // ───── 已作废标记 ─────
+          if (record.isDeleted)
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red, width: 2),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.cancel, color: Colors.red, size: 22),
+                  SizedBox(width: 8),
+                  Text('此记录已作废', style: TextStyle(
+                    color: Colors.red, fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+
           // ───── 头部概览卡片 ─────
           _buildHeaderCard(),
           const SizedBox(height: 16),
 
           // ───── 留档照片 ─────
           if (record.imagePath != null && File(record.imagePath!).existsSync())
-            _buildPhotoCard(),
+            _buildPhotoCard(context),
           const SizedBox(height: 16),
 
           // ───── 基本信息 ─────
@@ -240,6 +261,24 @@ class RecordDetailPage extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (record.isDeleted) ...[
+                  const SizedBox(width: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.cancel, color: Colors.white, size: 18),
+                        SizedBox(width: 6),
+                        Text('已作废', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 16),
@@ -266,7 +305,7 @@ class RecordDetailPage extends StatelessWidget {
   }
 
   // ───── 留档照片卡片 ─────
-  Widget _buildPhotoCard() {
+  Widget _buildPhotoCard(BuildContext context) {
     return Card(
       elevation: 1,
       clipBehavior: Clip.antiAlias,

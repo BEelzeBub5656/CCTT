@@ -4,7 +4,9 @@ import { store } from '../state.js';
 import { typeBadge, syncBadge, esc } from './dashboard.js';
 
 export function formatDate(ts) {
+  if (!ts) return '-';
   const d = new Date(ts);
+  if (isNaN(d.getTime())) return '-';
   const pad = n => String(n).padStart(2, '0');
   return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
@@ -108,7 +110,7 @@ function renderTable(rows) {
         ${rows.map(r => {
           const cls = r.isDeleted ? 'deleted' : '';
           return `
-            <tr class="${cls}">
+            <tr class="${cls}" style="cursor:pointer" onclick="location.hash='#/movements/${r.id}'">
               <td style="font-size:13px;white-space:nowrap">${formatDate(r.timestamp)}</td>
               <td>${r.isDeleted ? '<span class="badge badge-deleted">已作废</span>' : typeBadge(r.type)}</td>
               <td><strong>${esc(r.partnerName)}</strong>${r.deliveryPerson ? '<br><span style="font-size:12px;color:var(--slate-500)">送货: ' + esc(r.deliveryPerson) + '</span>' : ''}</td>
@@ -118,10 +120,11 @@ function renderTable(rows) {
               <td style="font-family:var(--font-mono)">${(r.unitPrice||0).toFixed(2)}</td>
               <td style="font-family:var(--font-mono);font-weight:600;color:var(--teal-dark)">${(r.totalAmount||0).toFixed(2)}</td>
               <td>${syncBadge(r.syncStatus)}</td>
-              <td class="actions-cell">
+              <td class="actions-cell" onclick="event.stopPropagation()">
                 <a class="btn btn-sm btn-outline" href="#/movements/${r.id}" title="详情"><i class="fa-solid fa-eye"></i></a>
                 ${r.isDeleted ? `
                   <button class="btn btn-sm btn-outline" onclick="window.restoreMovement('${r.id}')" title="恢复"><i class="fa-solid fa-rotate-left"></i></button>
+                  <button class="btn btn-sm btn-danger" onclick="window.hardDeleteMovement('${r.id}','${esc(r.partnerName)}')" title="永久删除"><i class="fa-solid fa-trash"></i></button>
                 ` : `
                   <a class="btn btn-sm btn-outline" href="#/movements/${r.id}/edit" title="编辑"><i class="fa-solid fa-pen"></i></a>
                   <button class="btn btn-sm btn-danger" onclick="window.voidMovement('${r.id}','${esc(r.partnerName)}')" title="作废"><i class="fa-solid fa-ban"></i></button>
@@ -189,6 +192,32 @@ window.restoreMovement = async function(id) {
   try {
     await api.post('/api/movements/' + id + '/restore');
     window.showToast('记录已恢复', 'success');
+    loadData();
+  } catch (e) {
+    window.showToast(e.message, 'error');
+  }
+};
+
+window.hardDeleteMovement = function(id, name) {
+  window.showModal(`
+    <div class="modal-header">永久删除</div>
+    <div class="modal-body">
+      <p style="color:var(--red);font-weight:600">⚠ 此操作不可逆！</p>
+      <p>确定要<strong>永久删除</strong>记录 "<strong>${name}</strong>" 吗？</p>
+      <p style="font-size:13px;color:var(--slate-500)">数据将从数据库彻底移除，手机同步后也会删除对应记录。</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">取消</button>
+      <button class="btn btn-danger" onclick="window.submitHardDelete('${id}')">确认永久删除</button>
+    </div>
+  `);
+};
+
+window.submitHardDelete = async function(id) {
+  try {
+    await api.del('/api/movements/' + id + '/hard');
+    window.showToast('记录已永久删除', 'success');
+    closeModal();
     loadData();
   } catch (e) {
     window.showToast(e.message, 'error');

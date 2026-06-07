@@ -2,6 +2,11 @@ const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { getDb } = require('../db');
+const { debouncedPublishSnapshot } = require('../mqtt');
+
+function triggerSnapshot(label) {
+  debouncedPublishSnapshot(label);
+}
 
 // GET /api/warehouses — 全部仓库列表
 router.get('/', (req, res) => {
@@ -29,6 +34,7 @@ router.post('/', (req, res) => {
   db.prepare('INSERT INTO warehouses (id, name) VALUES (?, ?)').run(id, name.trim());
   const row = db.prepare('SELECT * FROM warehouses WHERE id = ?').get(id);
   res.status(201).json(row);
+  triggerSnapshot('创建仓库');
 });
 
 // PUT /api/warehouses/:id — 更新仓库名称
@@ -44,6 +50,7 @@ router.put('/:id', (req, res) => {
   db.prepare('UPDATE warehouses SET name = ? WHERE id = ?').run(name.trim(), req.params.id);
   const row = db.prepare('SELECT * FROM warehouses WHERE id = ?').get(req.params.id);
   res.json(row);
+  triggerSnapshot('更新仓库');
 });
 
 // DELETE /api/warehouses/:id — 删除仓库（外键保护）
@@ -65,6 +72,7 @@ router.delete('/:id', (req, res) => {
 
   db.prepare('DELETE FROM warehouses WHERE id = ?').run(req.params.id);
   res.json({ message: '仓库已删除' });
+  triggerSnapshot('删除仓库');
 });
 
 module.exports = router;

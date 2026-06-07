@@ -1,6 +1,6 @@
 # CCTT 项目开发记录文档
 
-文档生成日期：2026-06-07
+文档生成日期：2026-06-07（更新）
 项目名称：CCTT（离线优先个人库存管理 App + Web 管理后台）
 技术栈：Flutter + Dart + SQLite + MQTT + Node.js + Express + better-sqlite3
 最新数据库版本：v6（新增 imagePath 留档照片字段）
@@ -511,12 +511,70 @@ at TextRecognizer.handleDetection()
 * 数据库平滑迁移 v5→v6（ALTER TABLE，不丢数据）
 * 移除不可用的 google_mlkit_text_recognition 依赖，APK 体积减小
 
-## 八、后续开发建议
+### 2.18 第十八阶段：MQTT Master-Slave 同步架构修复 + 长按 Bug
+
+**时间：**2026-06-07
+
+**背景：**双端数据不同步的问题根因有两点：(1) Node.js Master 在收到 MQTT 消息或 CRUD 后不自动发布快照；(2) Flutter Slave 使用 ConflictAlgorithm.ignore 拒绝接受 Master 的覆盖。
+
+**修改文件（Web 端）：**
+
+- `admin/server/mqtt.js` — client.on('message') 改为 async，入库后自动调用 publishSnapshot()
+- `admin/server/routes/movements.js` — 引入 publishSnapshot，POST/PUT/DELETE/restore 后异步触发 triggerSnapshot()
+- `admin/server/routes/warehouses.js` — POST/PUT/DELETE 后触发 triggerSnapshot()
+- `admin/server/routes/sync.js` — 新增快照发布后的全量 synced 标记
+
+**修改文件（Flutter 端）：**
+
+- `lib/services/sync_service.dart` — PullResult 改为包含 addedCount（实际新增）；pullSnapshot() 拉取前统计本地数，拉取后计算差异；ConflictAlgorithm 从 ignore 改为 replace（Master 快照强制覆盖）
+- `lib/pages/home_page.dart` — 预加载 _longPressDuration 到内存；onTapDown 改为同步；所有导航前调用 _cancelLongPress()；自动拉取成功时总刷新列表
+
+**实现功能：**
+
+- MQTT 消息入库后自动发布 retain 快照
+- Web CRUD 操作后自动触发快照更新
+- 手机拉取快照时 Master 数据强制覆盖本地
+- 修复长按异步竞态条件导致的「手指抬起后仍弹出修改对话框」Bug
+- 自动拉取成功后总刷新列表（修复替换数据但不刷新 UI 的 Bug）
+- 同步超时从 5 秒缩短到 3 秒
+
+### 2.19 第十九阶段：UI 交互重构 — 左滑改弹出菜单 + 垃圾桶 + 作废原因
+
+**时间：**2026-06-07
+
+**修改文件：**
+
+- `lib/pages/home_page.dart` — 大规模重构：
+  - 删除手动左滑/拖动手势代码（_SwipeableRecordCard 从复杂 StatefulWidget 简化为 StatelessWidget）
+  - 卡片右上角放置羽毛笔图标（PopupMenuButton），点击弹出「修改记录」「作废记录」下拉菜单
+  - 删除长按修改功能及 SettingsPage 入口
+  - AppBar 设置齿轮图标替换为垃圾桶图标（Icons.delete_sweep），点击进入「已作废记录」列表页
+  - 已作废记录从主页隐藏（_filteredMovements 过滤 isDeleted）
+  - 新增 _DeletedRecordsPage 组件（含空状态、记录列表、点击进入详情）
+  - 新增 _confirmDeleteRecord 作废二次确认对话框（含 5 个预设原因 ChoiceChip + 自定义输入框）
+  - 已作废记录不显示操作菜单按钮
+  - 同步失败对话框增加「重试」按钮
+- `lib/pages/record_detail_page.dart` — 新增已作废标记：
+  - 顶部红色横幅「此记录已作废」
+  - 头部卡片入库/出库标签旁红色圆形「已作废」徽章
+- `lib/pages/home_page.dart` imports — 移除 settings_service 和 intl 依赖
+
+**实现功能：**
+
+- 每条记录右上角羽毛笔图标 → 点击弹出自定义下拉菜单（修改/作废）
+- 垃圾桶页面集中管理所有已作废记录，可点击查看详情
+- 作废确认时可选 5 个预设原因或自定义输入
+- 已作废记录不出现在主页
+- 详情页醒目标记已作废状态
+- 同步操作失败时提供对话框 + 重试按钮
 
 1. **（已完成）**将硬编码的 _baseUrl 改为从 Settings 页面读取。
 2. **（已完成）**搭建 Web 管理后台（Node.js + Express + SQLite），实现图形化 CRUD。
 3. **（已完成）**手机端启动时自动检测云端差异，双向同步状态指示。
-4. 引入 flutter_bloc + get_it 重构状态管理，替换现有 setState。
+4. **（已完成）**MQTT Master-Slave 同步架构修复（自动快照 + Master 强制覆盖）。
+5. **（已完成）**左滑删除改为羽毛笔弹出菜单 + 垃圾桶页面 + 作废原因选择。
+6. **（已完成）**长按修改竞态条件 Bug 修复 + 详情页已作废标记。
+7. 引入 flutter_bloc + get_it 重构状态管理，替换现有 setState。
 5. 实现后台自动同步（connectivity_plus 监听网络恢复 + workmanager 定时任务）。
 6. 如有需要，可接入云端 OCR API（如百度 OCR、阿里云 OCR）实现中文发票智能识别。
 7. 添加库存统计报表（按仓库计算实时库存 = 入库合计 − 出库合计）。

@@ -30,7 +30,9 @@ class Store {
   // 加载仓库列表
   async loadWarehouses() {
     try {
-      const warehouses = await (await fetch('/api/warehouses')).json();
+      const res = await fetch('/api/warehouses');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const warehouses = await res.json();
       this.setState({ warehouses });
       return warehouses;
     } catch (e) {
@@ -42,7 +44,9 @@ class Store {
   // 加载统计数据
   async loadStats() {
     try {
-      const stats = await (await fetch('/api/stats')).json();
+      const res = await fetch('/api/stats');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const stats = await res.json();
       this.setState({ stats });
       return stats;
     } catch (e) {

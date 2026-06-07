@@ -1,17 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-
 import '../data/database_helper.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
-import '../services/settings_service.dart';
 import '../services/sync_service.dart';
 import 'add_record_page.dart';
 import 'edit_record_page.dart';
 import 'record_detail_page.dart';
-import 'settings_page.dart';
-
 /// 主页面
 ///
 /// 以 ListView 展示本地库存移动记录，支持按仓库筛选，并用不同颜色图标区分同步状态。
@@ -29,28 +24,19 @@ class _HomePageState extends State<HomePage> {
   int _unpushedCount = 0;
   int _cloudNewCount = 0;
   bool _cloudChecked = false;
-  double _longPressDuration = 3.0; // 缓存长按时长，避免 onTapDown 中异步读取
 
   /// null 表示「所有仓库」
   String? _selectedWarehouseId;
 
-  /// 长按计时器
-  Timer? _longPressTimer;
-
   @override
   void initState() {
     super.initState();
-    _initSettings();
     _loadData().then((_) {
       _checkUnpushedRecords();
       _autoPullFromCloud();
+    }).catchError((e) {
+      debugPrint('HomePage init 加载失败: $e');
     });
-  }
-
-  /// 预加载设置项（同步缓存，避免手势回调中 await）
-  Future<void> _initSettings() async {
-    final duration = await SettingsService.getLongPressDuration();
-    if (mounted) setState(() => _longPressDuration = duration);
   }
 
   /// 加载所有数据
@@ -87,7 +73,7 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  /// 启动后静默拉取云端快照，检测云端是否有本地没有的数据
+  /// 启动后静默拉取云端快照，Master 快照强制覆盖本地
   Future<void> _autoPullFromCloud() async {
     if (!mounted) return;
     final result = await SyncService.pullSnapshot();
@@ -98,32 +84,29 @@ class _HomePageState extends State<HomePage> {
       _cloudChecked = true;
     });
 
-    if (result.success && result.addedCount > 0) {
-      // 云端有新数据，刷新列表并通知用户
+    if (result.success) {
+      // 总是刷新列表（数据可能被 Master 快照覆盖更新）
       await _loadData();
       if (!mounted) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('云端有 ${result.addedCount} 条新记录已同步到本地'),
-            backgroundColor: Colors.teal,
-            duration: const Duration(seconds: 5),
+            content: Text(result.message),
+            backgroundColor: result.addedCount > 0 ? Colors.teal : Colors.grey.shade700,
+            duration: Duration(seconds: result.addedCount > 0 ? 5 : 2),
           ),
         );
       });
-    } else if (!result.success && result.message.contains('超时')) {
-      // 云端无快照，静默忽略
-      if (mounted) setState(() => _cloudChecked = true);
     }
+    // 超时等错误静默忽略，用户可手动下拉
   }
 
   /// 根据当前选择筛选记录
   List<StockMovement> get _filteredMovements {
-    if (_selectedWarehouseId == null) return _movements;
-    return _movements
-        .where((m) => m.warehouseId == _selectedWarehouseId)
-        .toList();
+    final active = _movements.where((m) => !m.isDeleted).toList();
+    if (_selectedWarehouseId == null) return active;
+    return active.where((m) => m.warehouseId == _selectedWarehouseId).toList();
   }
 
   /// 下拉刷新
@@ -166,17 +149,35 @@ class _HomePageState extends State<HomePage> {
 
     if (!mounted) return;
 
-    // 超时场景弹窗提示，其他场景用 SnackBar
-    if (!result.success && result.message.contains('超时')) {
+    // 出错场景弹窗提示
+    if (!result.success) {
+      final isDnsError = result.message.contains('SocketException') ||
+                         result.message.contains('host lookup') ||
+                         result.message.contains('No address');
+      final brokerName = 'kf33d077.ala.cn-hangzhou.emqxsl.cn';
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('拉取快照失败'),
-          content: const Text(
-            '云端尚未发布 retain 快照，或网络连接超时。\n\n'
-            '请确认 PC 后端已推送快照后重试。',
+          title: const Text('连接云端失败'),
+          content: Text(
+            isDnsError
+                ? '无法解析 MQTT 服务器地址。\n\n'
+                  'Broker: $brokerName\n\n'
+                  '可能原因：\n'
+                  '1. 手机网络未连接\n'
+                  '2. EMQX 服务已停止\n'
+                  '3. DNS 解析失败，稍后重试'
+                : result.message,
           ),
           actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                // 重试
+                if (mounted) _pullSnapshot();
+              },
+              child: const Text('重试'),
+            ),
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('知道了'),
@@ -188,7 +189,7 @@ class _HomePageState extends State<HomePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result.message),
-          backgroundColor: result.success ? Colors.green : Colors.red,
+          backgroundColor: Colors.green,
         ),
       );
     }
@@ -217,21 +218,44 @@ class _HomePageState extends State<HomePage> {
     // 4. 最后再刷新界面 → 绿色（成功）或红色（失败）
     await _loadData();
 
-    // 5. 弹窗提示结果
+    // 5. 提示结果
     if (mounted) {
       final isSuccess = result.contains('成功');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result),
-          backgroundColor: isSuccess ? Colors.green : Colors.red,
-        ),
-      );
+      if (isSuccess) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        // 失败弹窗，提供重试
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('同步失败'),
+            content: Text(result),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                  _syncRecords(); // 重试
+                },
+                child: const Text('重试'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('知道了'),
+              ),
+            ],
+          ),
+        );
+      }
     }
   }
 
   /// 跳转到新建页面
   Future<void> _navigateToAdd() async {
-    _cancelLongPress();
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const AddRecordPage()),
     );
@@ -298,57 +322,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
-    _longPressTimer?.cancel();
     super.dispose();
-  }
-
-  /// 启动长按计时器
-  void _startLongPress(StockMovement record, double durationSeconds) {
-    _longPressTimer?.cancel();
-    _longPressTimer = Timer(
-      Duration(milliseconds: (durationSeconds * 1000).toInt()),
-      () => _showEditConfirmDialog(record),
-    );
-  }
-
-  /// 取消长按计时器
-  void _cancelLongPress() {
-    _longPressTimer?.cancel();
-    _longPressTimer = null;
-  }
-
-  /// 长按确认修改对话框
-  Future<void> _showEditConfirmDialog(StockMovement record) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('修改记录'),
-        content: const Text('是否要修改此条记录？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('确认修改'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
-      final result = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(
-          builder: (_) => EditRecordPage(record: record),
-        ),
-      );
-      if (result == true) {
-        // 重置筛选器为「所有仓库」，防止修改后的记录被当前过滤器隐藏
-        setState(() => _selectedWarehouseId = null);
-        await _loadData();
-      }
-    }
   }
 
   /// 创建默认仓库（空状态快捷入口）
@@ -363,12 +337,6 @@ class _HomePageState extends State<HomePage> {
         const SnackBar(content: Text('已创建默认仓库')),
       );
     }
-  }
-
-  /// 格式化时间戳
-  String _formatTimestamp(int timestamp) {
-    final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
-    return DateFormat('yyyy-MM-dd HH:mm').format(date);
   }
 
   /// 根据仓库 ID 获取名称
@@ -421,12 +389,16 @@ class _HomePageState extends State<HomePage> {
             onPressed: _onRefresh,
           ),
           IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: '设置中心',
+            icon: const Icon(Icons.delete_sweep),
+            tooltip: '已作废记录',
             onPressed: () {
-              _cancelLongPress();
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SettingsPage()),
+                MaterialPageRoute(
+                  builder: (_) => _DeletedRecordsPage(
+                    records: _movements.where((m) => m.isDeleted).toList(),
+                    warehouseName: _warehouseName,
+                  ),
+                ),
               );
             },
           ),
@@ -554,76 +526,22 @@ class _HomePageState extends State<HomePage> {
   }
 
   /// 根据状态生成带颜色的文字标签
-  Widget _buildSyncStatusBadge(SyncStatus status) {
-    Color color;
-    String text;
-    switch (status) {
-      case SyncStatus.synced:
-        color = Colors.green;
-        text = '已同步';
-        break;
-      case SyncStatus.syncing:
-        color = Colors.blue;
-        text = '正在同步';
-        break;
-      case SyncStatus.failed:
-        color = Colors.red;
-        text = '同步失败';
-        break;
-      case SyncStatus.pending:
-        color = Colors.orange;
-        text = '未同步';
-        break;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color, width: 1.5),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-
-  /// 单条记录卡片
+  /// 单条记录卡片（左滑展示操作按钮）
   Widget _buildMovementCard(StockMovement record) {
-    final isInbound = record.type == MovementType.inbound;
-    final isDeleted = record.isDeleted;
-
-    // 主标题：颜色 + 品种
-    final displayTitle = record.color.isNotEmpty || record.variety.isNotEmpty
-        ? '${record.color}${record.color.isNotEmpty && record.variety.isNotEmpty ? ' / ' : ''}${record.variety}'
-        : record.partnerName;
-
-    // 软删除样式
-    final titleStyle = TextStyle(
-      fontWeight: FontWeight.w600,
-      decoration: isDeleted ? TextDecoration.lineThrough : null,
-      color: isDeleted ? Colors.grey.shade500 : null,
-    );
-    final subtitleStyle = TextStyle(
-      fontSize: 12,
-      color: isDeleted ? Colors.grey.shade400 : Colors.grey.shade700,
-      decoration: isDeleted ? TextDecoration.lineThrough : null,
-    );
-
-    return GestureDetector(
-      onTapDown: (_) {
-        _startLongPress(record, _longPressDuration);
+    return _SwipeableRecordCard(
+      record: record,
+      warehouseName: _warehouseName(record.warehouseId),
+      onEdit: () async {
+        final result = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(builder: (_) => EditRecordPage(record: record)),
+        );
+        if (result == true && mounted) {
+          setState(() => _selectedWarehouseId = null);
+          await _loadData();
+        }
       },
-      onTapUp: (_) => _cancelLongPress(),
-      onTapCancel: () => _cancelLongPress(),
+      onDelete: () => _confirmDeleteRecord(record),
       onTap: () {
-        _cancelLongPress();
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => RecordDetailPage(
@@ -633,110 +551,328 @@ class _HomePageState extends State<HomePage> {
           ),
         );
       },
-      child: Card(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        color: isDeleted ? Colors.grey.shade50 : null,
-        child: ListTile(
-          onTap: null, // 由 GestureDetector 处理
-          leading: CircleAvatar(
-            backgroundColor: record.syncStatus == SyncStatus.synced
-                ? Colors.green.shade100
-                : Colors.orange.shade100,
-            child: Icon(
-              record.syncStatus == SyncStatus.synced
-                  ? Icons.check_circle
-                  : Icons.sync,
-              color: record.syncStatus == SyncStatus.synced
-                  ? Colors.green.shade800
-                  : Colors.orange.shade800,
-            ),
-          ),
-          title: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isInbound
-                      ? Colors.green.shade50
-                      : Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isInbound ? Colors.green : Colors.red,
-                  ),
-                ),
-                child: Text(
-                  isInbound ? '入库' : '出库',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: isInbound
-                        ? Colors.green.shade800
-                        : Colors.red.shade800,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  displayTitle,
-                  style: titleStyle,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (isDeleted)
-                Container(
-                  margin: const EdgeInsets.only(left: 8),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.red, width: 1.5),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text(
-                    '已作废',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.red,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          subtitle: Column(
+    );
+  }
+
+  /// 左滑作废二次确认（含作废原因选择）
+  Future<void> _confirmDeleteRecord(StockMovement record) async {
+    String? reason;
+    final presetReasons = ['数据录入错误', '交易取消', '重复记录', '货物退回', '其他'];
+    final reasonController = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('确认作废'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Text(
-                    '${_warehouseName(record.warehouseId)}  •  ${_formatTimestamp(record.timestamp)}',
-                    style: TextStyle(
-                      color: isDeleted ? Colors.grey.shade400 : null,
-                      decoration:
-                          isDeleted ? TextDecoration.lineThrough : null,
-                    ),
-                  ),
-                  if (record.imagePath != null && record.imagePath!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: Icon(
-                        Icons.camera_alt,
-                        size: 14,
-                        color: Colors.teal.shade300,
-                      ),
-                    ),
-                ],
+              Text('确定要作废记录 "${record.partnerName}" 吗？'),
+              const SizedBox(height: 12),
+              const Text('作废原因：', style: TextStyle(fontSize: 13, color: Colors.grey)),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: presetReasons.map((r) => ChoiceChip(
+                  label: Text(r),
+                  selected: reason == r,
+                  onSelected: (sel) {
+                    setDialogState(() {
+                      reason = sel ? r : null;
+                      if (sel) reasonController.text = r == '其他' ? '' : r;
+                    });
+                  },
+                )).toList(),
               ),
-              Text(
-                '净重 ${record.quantity.toStringAsFixed(2)} kg  |  单价 ¥${record.unitPrice.toStringAsFixed(2)}/吨',
-                style: subtitleStyle,
+              const SizedBox(height: 8),
+              TextField(
+                controller: reasonController,
+                decoration: const InputDecoration(
+                  hintText: '输入作废原因（可选）',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                maxLines: 2,
+                onChanged: (v) { reason = v.isEmpty ? null : v; },
               ),
             ],
           ),
-          trailing: _buildSyncStatusBadge(record.syncStatus),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('确认作废'),
+            ),
+          ],
         ),
       ),
+    );
+
+    reasonController.dispose();
+
+    if (confirmed == true && mounted) {
+      final updated = record.copyWith(isDeleted: true, syncStatus: SyncStatus.pending);
+      await DatabaseHelper.instance.updateMovement(updated);
+      await _loadData();
+      if (mounted) {
+        final msg = reason != null && reason!.isNotEmpty
+            ? '"${record.partnerName}" 已作废（原因：$reason）'
+            : '"${record.partnerName}" 已作废';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
+        );
+      }
+    }
+  }
+}
+
+// ── 记录卡片组件 ──
+class _SwipeableRecordCard extends StatelessWidget {
+  final StockMovement record;
+  final String warehouseName;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final VoidCallback onTap;
+
+  const _SwipeableRecordCard({
+    required this.record,
+    required this.warehouseName,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onTap,
+  });
+
+  String _pad(int n) => n.toString().padLeft(2, '0');
+  String _fmt(int ts) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ts);
+    return '${d.year}-${_pad(d.month)}-${_pad(d.day)} ${_pad(d.hour)}:${_pad(d.minute)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = record;
+    final isInbound = r.type == MovementType.inbound;
+    final isDeleted = r.isDeleted;
+
+    final displayTitle = r.color.isNotEmpty || r.variety.isNotEmpty
+        ? '${r.color}${r.color.isNotEmpty && r.variety.isNotEmpty ? ' / ' : ''}${r.variety}'
+        : r.partnerName;
+
+    final status = r.syncStatus;
+    final badgeInfo = switch (status) {
+      SyncStatus.synced  => ('已同步', Colors.green),
+      SyncStatus.syncing => ('正在同步', Colors.blue),
+      SyncStatus.failed  => ('同步失败', Colors.red),
+      SyncStatus.pending => ('未同步', Colors.orange),
+    };
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: isDeleted ? Colors.grey.shade50 : null,
+      child: ListTile(
+        onTap: onTap,
+        leading: CircleAvatar(
+          backgroundColor: status == SyncStatus.synced
+              ? Colors.green.shade100 : Colors.orange.shade100,
+          child: Icon(
+            status == SyncStatus.synced ? Icons.check_circle : Icons.sync,
+            color: status == SyncStatus.synced ? Colors.green.shade800 : Colors.orange.shade800,
+          ),
+        ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: isInbound ? Colors.green.shade50 : Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: isInbound ? Colors.green : Colors.red),
+              ),
+              child: Text(
+                isInbound ? '入库' : '出库',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
+                    color: isInbound ? Colors.green.shade800 : Colors.red.shade800),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(displayTitle,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  decoration: isDeleted ? TextDecoration.lineThrough : null,
+                  color: isDeleted ? Colors.grey.shade500 : null,
+                ),
+              ),
+            ),
+            if (isDeleted)
+              Container(
+                margin: const EdgeInsets.only(left: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.red, width: 1.5),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text('已作废', style: TextStyle(
+                  fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red)),
+              ),
+            if (!isDeleted)
+              PopupMenuButton<String>(
+                padding: EdgeInsets.zero,
+                iconSize: 16,
+                icon: Icon(Icons.edit_note, color: Colors.teal.shade400, size: 20),
+                tooltip: '操作',
+                onSelected: (v) {
+                  if (v == 'edit') onEdit();
+                  if (v == 'delete') onDelete();
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'edit', child: ListTile(
+                    leading: Icon(Icons.edit, color: Colors.blue),
+                    title: Text('修改记录'),
+                    dense: true, contentPadding: EdgeInsets.zero,
+                  )),
+                  PopupMenuItem(value: 'delete', child: ListTile(
+                    leading: Icon(Icons.delete_outline, color: Colors.red),
+                    title: Text('作废记录', style: TextStyle(color: Colors.red)),
+                    dense: true, contentPadding: EdgeInsets.zero,
+                  )),
+                ],
+              ),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '$warehouseName  •  ${_fmt(r.timestamp)}',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDeleted ? Colors.grey.shade400 : Colors.grey.shade700,
+                      decoration: isDeleted ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
+                ),
+                if (r.imagePath != null && r.imagePath!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Icon(Icons.camera_alt, size: 14, color: Colors.teal.shade300),
+                  ),
+              ],
+            ),
+            Row(
+              children: [
+                Text(
+                  '净重 ${r.quantity.toStringAsFixed(2)} kg  |  单价 ¥${r.unitPrice.toStringAsFixed(2)}/吨',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDeleted ? Colors.grey.shade400 : Colors.grey.shade700,
+                    decoration: isDeleted ? TextDecoration.lineThrough : null,
+                  ),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: badgeInfo.$2.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: badgeInfo.$2, width: 1.5),
+                  ),
+                  child: Text(badgeInfo.$1, style: TextStyle(
+                    color: badgeInfo.$2, fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── 已作废记录列表页 ──
+class _DeletedRecordsPage extends StatelessWidget {
+  final List<StockMovement> records;
+  final String Function(String) warehouseName;
+  const _DeletedRecordsPage({required this.records, required this.warehouseName});
+
+  String _fmt(int ts) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ts);
+    String p(int n) => n.toString().padLeft(2, '0');
+    return '${d.year}-${p(d.month)}-${p(d.day)} ${p(d.hour)}:${p(d.minute)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('已作废记录（${records.length}）')),
+      body: records.isEmpty
+          ? const Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.delete_sweep, size: 64, color: Colors.grey),
+                SizedBox(height: 12),
+                Text('没有已作废的记录', style: TextStyle(color: Colors.grey, fontSize: 16)),
+              ]),
+            )
+          : ListView.builder(
+              itemCount: records.length,
+              itemBuilder: (context, index) {
+                final r = records[index];
+                final isInbound = r.type == MovementType.inbound;
+                final status = r.syncStatus;
+                final badgeInfo = switch (status) {
+                  SyncStatus.synced  => ('已同步', Colors.green),
+                  SyncStatus.syncing => ('正在同步', Colors.blue),
+                  SyncStatus.failed  => ('同步失败', Colors.red),
+                  SyncStatus.pending => ('未同步', Colors.orange),
+                };
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  color: Colors.grey.shade50,
+                  child: ListTile(
+                    onTap: () {
+                      Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => RecordDetailPage(record: r, warehouseName: warehouseName(r.warehouseId)),
+                      ));
+                    },
+                    leading: const Icon(Icons.cancel, color: Colors.red),
+                    title: Row(children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isInbound ? Colors.green.shade50 : Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: isInbound ? Colors.green : Colors.red),
+                        ),
+                        child: Text(isInbound ? '入库' : '出库',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
+                              color: isInbound ? Colors.green.shade800 : Colors.red.shade800)),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(r.partnerName, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(decoration: TextDecoration.lineThrough, color: Colors.grey))),
+                    ]),
+                    subtitle: Text(
+                      '${warehouseName(r.warehouseId)}  •  ${_fmt(r.timestamp)}  |  ${r.quantity.toStringAsFixed(2)}kg  |  ¥${r.totalAmount.toStringAsFixed(2)}',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey, decoration: TextDecoration.lineThrough)),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: badgeInfo.$2.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: badgeInfo.$2, width: 1.5)),
+                      child: Text(badgeInfo.$1, style: TextStyle(color: badgeInfo.$2, fontSize: 12, fontWeight: FontWeight.bold))),
+                  ));
+              }),
     );
   }
 }

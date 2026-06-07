@@ -92,7 +92,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
   // ───── 保存记录 ─────
 
   Future<void> _saveRecord() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     if (_selectedWarehouseId == null) {
       _showSnackBar('请至少创建一个仓库');
       return;
@@ -890,6 +890,7 @@ class _CameraPreviewDialogState extends State<_CameraPreviewDialog> {
       }
     } catch (e) {
       debugPrint('拍照失败: $e');
+      if (mounted) Navigator.of(context).pop(null);
     }
   }
 

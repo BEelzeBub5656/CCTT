@@ -47,6 +47,19 @@ app.use((err, req, res, next) => {
   });
 });
 
+// 优雅关闭
+function shutdown() {
+  console.log('[CCTT-Admin] 正在关闭...');
+  const { close } = require('./db');
+  try { close(); } catch (e) { /* ignore */ }
+  process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+process.on('unhandledRejection', (reason) => {
+  console.error('[CCTT-Admin] 未处理的 Promise 拒绝:', reason);
+});
+
 // 启动服务器
 app.listen(PORT, () => {
   console.log('[CCTT-Admin] Web 管理系统已启动');

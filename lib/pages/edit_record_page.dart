@@ -82,7 +82,7 @@ class _EditRecordPageState extends State<EditRecordPage> {
 
   /// 保存修改
   Future<void> _saveChanges() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() => _isSaving = true);
 

@@ -256,6 +256,20 @@ class DatabaseHelper {
     );
   }
 
+  /// 永久删除一条记录（按 id 匹配）
+  Future<int> deleteMovement(String id) async {
+    final db = await database;
+    return await db.delete(_movementsTable, where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// 批量永久删除记录
+  Future<void> deleteMovements(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final db = await database;
+    final placeholders = ids.map((_) => '?').join(',');
+    await db.delete(_movementsTable, where: 'id IN ($placeholders)', whereArgs: ids);
+  }
+
   /// 批量更新多条记录的同步状态
   ///
   /// 使用 SQLite [Batch] 减少事务往返，提升批量更新性能。
@@ -271,6 +285,6 @@ class DatabaseHelper {
         whereArgs: [id],
       );
     }
-    await batch.commit(noResult: true);
+    await batch.commit(noResult: false);
   }
 }

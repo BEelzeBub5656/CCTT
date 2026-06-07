@@ -57,6 +57,9 @@ app.*.map.json
 # Project documents (generated)
 /CCTT_开发记录.docx
 
+# Claude Code config
+/.claude/
+
 # Admin panel (generated / sensitive)
 /admin/node_modules/
 /admin/.env

@@ -57,6 +57,16 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script type="module">
+// ── 全局错误处理 ──
+window.addEventListener('error', (e) => {
+  console.error('全局错误:', e.error);
+  if (window.showToast) window.showToast('系统错误: ' + (e.error?.message||'未知'), 'error');
+});
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('未处理的 Promise 拒绝:', e.reason);
+  if (window.showToast) window.showToast('请求失败: ' + (e.reason?.message||'网络异常'), 'error');
+});
+
 // ── SPA 入口 ──
 import { router, navigate } from '/js/router.js';
 import { store } from '/js/state.js';

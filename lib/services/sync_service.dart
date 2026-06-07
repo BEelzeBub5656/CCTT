@@ -89,18 +89,28 @@ class SyncService {
         );
       }
 
-      // 打包 records + 全量 warehouses（云端快照恢复依赖完整仓库列表）
+      // 打包全量数据（records + warehouses）
       final payload = jsonEncode({
-        'records': pendingRecords.map((e) => e.toJson()).toList(),
+        'records': allRecords.map((e) => e.toJson()).toList(),
         'warehouses': allWarehouses.map((e) => e.toJson()).toList(),
       });
 
       final builder = MqttClientPayloadBuilder();
       builder.addUTF8String(payload);
+
+      // 1. 发送增量消息到 inbound 主题（实时通知 PC 端）
       client.publishMessage(
         _publishTopic,
         MqttQos.atLeastOnce,
         builder.payload!,
+      );
+
+      // 2. 同时发布 retain 快照到 snapshot 主题（供离线/后启动的设备拉取）
+      client.publishMessage(
+        _snapshotTopic,
+        MqttQos.atLeastOnce,
+        builder.payload!,
+        retain: true,
       );
 
       await dbHelper.updateSyncStatus(ids, SyncStatus.synced);
@@ -149,9 +159,9 @@ class SyncService {
         throw Exception('MQTT updates stream 不可用');
       }
 
-      // 5 秒超时：云端如果没有 retain 快照，必须立刻失败而不是永远挂起
+      // 3 秒超时：快速反馈（retain 消息应几乎即时到达）
       final messages = await updates.first.timeout(
-        const Duration(seconds: 5),
+        const Duration(seconds: 3),
         onTimeout: () => throw Exception(
           '云端尚未生成快照，或网络超时',
         ),
@@ -168,37 +178,53 @@ class SyncService {
       final List<dynamic> warehousesList =
           data['warehouses'] as List<dynamic>? ?? [];
 
-      // 1. 先写入 warehouses — 只添加不覆盖（本地优先）
+      // 1. 先写入 warehouses — Master 快照有最高优先级，强制覆盖本地
       if (warehousesList.isNotEmpty) {
         for (final e in warehousesList) {
           if (e is! Map<String, dynamic>) continue;
           final wh = Warehouse.fromJson(e);
-          await dbHelper.insertWarehouse(wh, conflictAlgorithm: ConflictAlgorithm.ignore);
+          await dbHelper.insertWarehouse(wh, conflictAlgorithm: ConflictAlgorithm.replace);
           whAdded++;
         }
       }
 
-      // 2. 再写入 records — 本地优先，只添加不删除不覆盖
+      // 2. 再写入 records — Master 快照强制覆盖本地（网页端的修改、作废等操作必须同步到手机）
+      final snapshotIds = <String>{};
       if (recordsList.isNotEmpty) {
         for (final e in recordsList) {
           if (e is! Map<String, dynamic>) continue;
           final record = StockMovement.fromJson(e);
-          await dbHelper.insertMovement(record, conflictAlgorithm: ConflictAlgorithm.ignore);
+          await dbHelper.insertMovement(record, conflictAlgorithm: ConflictAlgorithm.replace);
+          snapshotIds.add(record.id);
         }
       }
 
-      // 拉取后统计，计算实际新增
+      // 3. 清理本地有但快照中没有的记录（Web 端已永久删除的）
+      // 安全保护：快照有足够多的记录时才算可信，防止空/残缺快照误删本地数据
+      if (snapshotIds.length >= 3) {
+        final localAfter = await dbHelper.getAllMovements();
+        final toDelete = localAfter
+            .where((l) => !snapshotIds.contains(l.id))
+            .map((l) => l.id)
+            .toList();
+        if (toDelete.isNotEmpty) {
+          await dbHelper.deleteMovements(toDelete);
+        }
+      }
+
+      // 拉取后统计，计算实际差异
       final afterMovements = await dbHelper.getAllMovements();
-      final actualNew = afterMovements.length - beforeCount;
+      final afterCount = afterMovements.length;
+      final newRecords = afterCount - beforeCount;
 
       client.unsubscribe(_snapshotTopic);
       return PullResult(
         success: true,
-        addedCount: actualNew,
+        addedCount: newRecords > 0 ? newRecords : 0,
         warehouseCount: whAdded,
-        message: actualNew > 0
-            ? '成功从云端获取 $actualNew 条新记录'
-            : '已与云端同步，暂无新数据',
+        message: newRecords > 0
+            ? '成功从云端获取 $newRecords 条新记录'
+            : '已与云端同步（本地 $afterCount 条记录）',
       );
     } catch (e) {
       return PullResult(

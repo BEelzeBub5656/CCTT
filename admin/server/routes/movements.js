@@ -2,6 +2,12 @@ const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { getDb, ALL_MOVEMENTS_BASE } = require('../db');
+const { debouncedPublishSnapshot } = require('../mqtt');
+
+// 写入操作后去抖发布快照（800ms 内合并多次操作）
+function triggerSnapshot(label) {
+  debouncedPublishSnapshot(label);
+}
 
 // 辅助：为记录添加计算字段
 function enrich(row) {
@@ -26,7 +32,8 @@ router.get('/', (req, res) => {
   const conditions = [];
   const params = [];
 
-  if (!includeDeleted || includeDeleted === 'false') {
+  // 默认显示全部记录（含已作废），传 ?includeDeleted=false 才过滤
+  if (includeDeleted === 'false') {
     conditions.push('m.isDeleted = 0');
   }
 
@@ -154,6 +161,9 @@ router.post('/', (req, res) => {
   `).get(id);
 
   res.status(201).json(enrich(row));
+
+  // 自动更新云端快照
+  triggerSnapshot('创建记录');
 });
 
 // PUT /api/movements/:id — 编辑记录（仅可编辑部分字段，匹配 Flutter EditRecordPage）
@@ -164,17 +174,24 @@ router.put('/:id', (req, res) => {
 
   const b = req.body;
 
+  // 安全数值转换（防止 null/NaN 污染数据库）
+  function safeNum(val, fallback) {
+    if (val === undefined || val === null || val === '') return fallback;
+    const n = parseFloat(val);
+    return isNaN(n) || !isFinite(n) ? fallback : n;
+  }
+
   // 仅可编辑这些字段
-  const grossWeight = b.grossWeight !== undefined ? parseFloat(b.grossWeight) : existing.grossWeight;
-  const tareWeight = b.tareWeight !== undefined ? parseFloat(b.tareWeight) : existing.tareWeight;
-  const unitPrice = b.unitPrice !== undefined ? parseFloat(b.unitPrice) : existing.unitPrice;
-  const totalPieces = b.totalPieces !== undefined ? parseInt(b.totalPieces) : existing.totalPieces;
+  const grossWeight = safeNum(b.grossWeight, existing.grossWeight);
+  const tareWeight = safeNum(b.tareWeight, existing.tareWeight);
+  const unitPrice = safeNum(b.unitPrice, existing.unitPrice);
+  const totalPieces = b.totalPieces !== undefined && b.totalPieces !== null ? parseInt(b.totalPieces) : existing.totalPieces;
   const deliveryPerson = b.deliveryPerson !== undefined ? b.deliveryPerson : existing.deliveryPerson;
 
   // 重新计算净重
   const quantity = grossWeight - tareWeight;
-  if (quantity <= 0) return res.status(400).json({ error: '净重必须大于 0（毛重 - 扣皮 = ' + quantity + '）' });
-  if (unitPrice < 0) return res.status(400).json({ error: '单价不能为负数' });
+  if (isNaN(quantity) || quantity <= 0) return res.status(400).json({ error: '净重必须大于 0' });
+  if (isNaN(unitPrice) || unitPrice < 0) return res.status(400).json({ error: '单价不能为负数' });
 
   // 编辑后重置同步状态为 pending
   db.prepare(`
@@ -192,6 +209,9 @@ router.put('/:id', (req, res) => {
   `).get(req.params.id);
 
   res.json(enrich(row));
+
+  // 自动更新云端快照
+  triggerSnapshot('编辑记录');
 });
 
 // DELETE /api/movements/:id — 软删除
@@ -211,6 +231,22 @@ router.delete('/:id', (req, res) => {
   `).get(req.params.id);
 
   res.json(enrich(row));
+
+  // 自动更新云端快照
+  triggerSnapshot('软删除记录');
+});
+
+// DELETE /api/movements/:id/hard — 永久删除（彻底从数据库移除）
+router.delete('/:id/hard', (req, res) => {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM stock_movements WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: '记录不存在' });
+
+  db.prepare('DELETE FROM stock_movements WHERE id = ?').run(req.params.id);
+  res.json({ message: '记录已永久删除' });
+
+  // 删完立即发布快照
+  triggerSnapshot('永久删除记录');
 });
 
 // POST /api/movements/:id/restore — 恢复软删除记录
@@ -230,6 +266,9 @@ router.post('/:id/restore', (req, res) => {
   `).get(req.params.id);
 
   res.json(enrich(row));
+
+  // 自动更新云端快照
+  triggerSnapshot('恢复记录');
 });
 
 module.exports = router;
