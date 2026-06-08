@@ -142,10 +142,10 @@ export async function renderMovementDetail(id) {
       <!-- 操作按钮 -->
       <div class="btn-group" style="justify-content:center;margin-top:20px">
         <a class="btn btn-outline" href="#/movements"><i class="fa-solid fa-arrow-left"></i> 返回列表</a>
-        ` : `
+        ${!r.isDeleted ? `
           <a class="btn btn-outline" href="#/movements/${r.id}/edit"><i class="fa-solid fa-pen"></i> 编辑</a>
           <button class="btn btn-danger" onclick="window.voidFromDetail('${r.id}','${esc(r.partnerName)}')"><i class="fa-solid fa-ban"></i> 作废</button>
-        `}
+        ` : ''}
       </div>
     `;
   } catch (e) {
