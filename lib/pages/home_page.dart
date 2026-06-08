@@ -215,7 +215,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  /// 手动同步（先变蓝、再变绿的视觉反馈）
+  /// 手动同步（上传 + 下拉合一，先上后下）
   Future<void> _syncRecords() async {
     if (!mounted) return;
 
@@ -229,22 +229,27 @@ class _HomePageState extends State<HomePage> {
       await DatabaseHelper.instance.updateSyncStatus(ids, SyncStatus.syncing);
     }
 
-    // 2. 立刻刷新界面 → 蓝色"正在同步"
+    // 2. 刷新界面 → 蓝色"正在同步"
     await _loadData();
 
-    // 3. 发起网络请求
-    final result = await SyncService.syncPendingRecords();
+    // 3. 推本地变更到 Master
+    final pushResult = await SyncService.syncPendingRecords();
 
-    // 4. 最后再刷新界面 → 绿色（成功）或红色（失败）
+    // 4. 下拉 Master 最新快照
+    final pullResult = await SyncService.pullSnapshot();
+    setState(() {
+      _cloudNewCount = pullResult.addedCount;
+      _cloudChecked = true;
+    });
     await _loadData();
 
     // 5. 提示结果
     if (mounted) {
-      final isSuccess = result.contains('成功');
+      final isSuccess = pushResult.contains('成功');
       if (isSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result),
+            content: Text(pullResult.message),
             backgroundColor: Colors.green,
           ),
         );
@@ -254,7 +259,7 @@ class _HomePageState extends State<HomePage> {
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('同步失败'),
-            content: Text(result),
+            content: Text(pushResult),
             actions: [
               TextButton(
                 onPressed: () {
@@ -280,10 +285,23 @@ class _HomePageState extends State<HomePage> {
       MaterialPageRoute(builder: (_) => const AddRecordPage()),
     );
     if (result == true && mounted) {
-      // 重置筛选器为「所有仓库」，防止新记录被当前过滤器隐藏
       setState(() => _selectedWarehouseId = null);
       await _loadData();
+      _autoSync(); // 新建后自动上传
     }
+  }
+
+  /// 静默自动同步（不弹窗，上传→等 Master 处理→下拉）
+  void _autoSync() {
+    SyncService.syncPendingRecords().then((_) async {
+      // 等 Web 处理完并发快照（去抖 800ms + 网络延迟）
+      await Future.delayed(const Duration(milliseconds: 1500));
+      final r = await SyncService.pullSnapshot();
+      if (mounted) {
+        setState(() { _cloudNewCount = r.addedCount; _cloudChecked = true; });
+        _loadData();
+      }
+    });
   }
 
   /// 添加仓库弹窗
@@ -644,6 +662,7 @@ class _HomePageState extends State<HomePage> {
         if (result == true && mounted) {
           setState(() => _selectedWarehouseId = null);
           await _loadData();
+          _autoSync(); // 编辑后自动上传
         }
       },
       onDelete: () => _confirmDeleteRecord(record),
@@ -724,6 +743,7 @@ class _HomePageState extends State<HomePage> {
       final updated = record.copyWith(isDeleted: true, syncStatus: SyncStatus.pending, voidReason: reason);
       await DatabaseHelper.instance.updateMovement(updated);
       await _loadData();
+      _autoSync(); // 作废后自动上传
       if (mounted) {
         final msg = reason != null && reason!.isNotEmpty
             ? '"${record.partnerName}" 已作废（原因：$reason）'
@@ -761,7 +781,6 @@ class _SwipeableRecordCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = record;
-    final isInbound = r.type == MovementType.inbound;
     final isDeleted = r.isDeleted;
 
     final displayTitle = r.color.isNotEmpty || r.variety.isNotEmpty
@@ -794,14 +813,14 @@ class _SwipeableRecordCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: isInbound ? Colors.green.shade50 : Colors.red.shade50,
+                color: r.type == MovementType.inbound ? Colors.green.shade50 : r.type == MovementType.outbound ? Colors.red.shade50 : Colors.orange.shade50,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: isInbound ? Colors.green : Colors.red),
+                border: Border.all(color: r.type == MovementType.inbound ? Colors.green : r.type == MovementType.outbound ? Colors.red : Colors.orange),
               ),
               child: Text(
-                isInbound ? '入库' : '出库',
+                r.type == MovementType.inbound ? '入库' : r.type == MovementType.outbound ? '出库' : '进货',
                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
-                    color: isInbound ? Colors.green.shade800 : Colors.red.shade800),
+                    color: r.type == MovementType.inbound ? Colors.green.shade800 : r.type == MovementType.outbound ? Colors.red.shade800 : Colors.orange.shade800),
               ),
             ),
             const SizedBox(width: 8),
@@ -933,7 +952,6 @@ class _DeletedRecordsPage extends StatelessWidget {
               itemCount: records.length,
               itemBuilder: (context, index) {
                 final r = records[index];
-                final isInbound = r.type == MovementType.inbound;
                 final status = r.syncStatus;
                 final badgeInfo = switch (status) {
                   SyncStatus.synced  => ('已同步', Colors.green),
@@ -955,13 +973,13 @@ class _DeletedRecordsPage extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
-                          color: isInbound ? Colors.green.shade50 : Colors.red.shade50,
+                          color: r.type == MovementType.inbound ? Colors.green.shade50 : r.type == MovementType.outbound ? Colors.red.shade50 : Colors.orange.shade50,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: isInbound ? Colors.green : Colors.red),
+                          border: Border.all(color: r.type == MovementType.inbound ? Colors.green : r.type == MovementType.outbound ? Colors.red : Colors.orange),
                         ),
-                        child: Text(isInbound ? '入库' : '出库',
+                        child: Text(r.type == MovementType.inbound ? '入库' : r.type == MovementType.outbound ? '出库' : '进货',
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
-                              color: isInbound ? Colors.green.shade800 : Colors.red.shade800)),
+                              color: r.type == MovementType.inbound ? Colors.green.shade800 : r.type == MovementType.outbound ? Colors.red.shade800 : Colors.orange.shade800)),
                       ),
                       const SizedBox(width: 8),
                       Expanded(child: Text(r.partnerName, overflow: TextOverflow.ellipsis,

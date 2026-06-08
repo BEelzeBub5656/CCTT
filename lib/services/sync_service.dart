@@ -44,8 +44,10 @@ class SyncService {
     final client = MqttServerClient(broker, clientId);
     client.port = port;
     client.secure = true;
+    client.onBadCertificate = (dynamic _) => true;
     client.setProtocolV311();
     client.logging(on: false);
+    client.keepAlivePeriod = 30; // 30 秒心跳，防止被 Broker 踢掉
     return client;
   }
 
@@ -98,19 +100,12 @@ class SyncService {
       final builder = MqttClientPayloadBuilder();
       builder.addUTF8String(payload);
 
-      // 1. 发送增量消息到 inbound 主题（实时通知 PC 端）
+      // 仅发送到 inbound，由 Web（Master）接手处理并发布权威快照
+      // 手机端不直接发快照，避免多手机时的 retain 覆盖冲突
       client.publishMessage(
         _publishTopic,
         MqttQos.atLeastOnce,
         builder.payload!,
-      );
-
-      // 2. 同时发布 retain 快照到 snapshot 主题（供离线/后启动的设备拉取）
-      client.publishMessage(
-        _snapshotTopic,
-        MqttQos.atLeastOnce,
-        builder.payload!,
-        retain: true,
       );
 
       await dbHelper.updateSyncStatus(ids, SyncStatus.synced);
@@ -188,28 +183,38 @@ class SyncService {
         }
       }
 
-      // 2. 再写入 records — Master 快照强制覆盖本地（网页端的修改、作废等操作必须同步到手机）
+      // 2. 写入 records — Master 覆盖，但保护本地 pending 记录
       final snapshotIds = <String>{};
+      final localRecords = await dbHelper.getAllMovements();
+      final localPendingIds = localRecords
+          .where((r) => r.syncStatus == SyncStatus.pending)
+          .map((r) => r.id)
+          .toSet();
+
       if (recordsList.isNotEmpty) {
         for (final e in recordsList) {
           if (e is! Map<String, dynamic>) continue;
           final record = StockMovement.fromJson(e);
+          // 本地 pending 的记录不覆盖（正在等待上传，保护本地修改）
+          if (localPendingIds.contains(record.id)) {
+            snapshotIds.add(record.id);
+            continue;
+          }
           await dbHelper.insertMovement(record, conflictAlgorithm: ConflictAlgorithm.replace);
           snapshotIds.add(record.id);
         }
       }
 
       // 3. 清理本地有但快照中没有的记录（Web 端已永久删除的）
-      // 安全保护：仅删除已同步的记录，保护本地未推送的 pending/failed 记录不被误删
-      if (snapshotIds.length >= 3) {
-        final localAfter = await dbHelper.getAllMovements();
-        final toDelete = localAfter
-            .where((l) => l.syncStatus == SyncStatus.synced && !snapshotIds.contains(l.id))
-            .map((l) => l.id)
-            .toList();
-        if (toDelete.isNotEmpty) {
-          await dbHelper.deleteMovements(toDelete);
-        }
+      // 安全保护：只删已同步记录（pending 是本地新建未推送的，不能丢）
+      // 不再限制快照最小数量——空快照表示 Master 已清空，手机端也应清空
+      final localAfter = await dbHelper.getAllMovements();
+      final toDelete = localAfter
+          .where((l) => l.syncStatus == SyncStatus.synced && !snapshotIds.contains(l.id))
+          .map((l) => l.id)
+          .toList();
+      if (toDelete.isNotEmpty) {
+        await dbHelper.deleteMovements(toDelete);
       }
 
       // 拉取后统计，计算实际差异

@@ -10,7 +10,7 @@ import '../models/warehouse.dart';
 /// 支持多仓库库存管理，严格遵循 Offline-First 原则。
 class DatabaseHelper {
   static const String _databaseName = 'cctt_database.db';
-  static const int _databaseVersion = 7; // v7: 新增 voidReason 作废原因字段
+  static const int _databaseVersion = 8; // v8: 新增 isSettled 结清 + remark 备注字段
 
   // 表名
   static const String _warehousesTable = 'warehouses';
@@ -100,9 +100,16 @@ class DatabaseHelper {
     }
 
     if (oldVersion < 7) {
-      // v6 → v7：新增 voidReason 作废原因字段（可空）
       await db.execute(
           'ALTER TABLE $_movementsTable ADD COLUMN voidReason TEXT');
+    }
+
+    if (oldVersion < 8) {
+      // v7 → v8：新增 isSettled 结清标志 + remark 备注字段
+      await db.execute(
+          "ALTER TABLE $_movementsTable ADD COLUMN isSettled INTEGER NOT NULL DEFAULT 0");
+      await db.execute(
+          'ALTER TABLE $_movementsTable ADD COLUMN remark TEXT');
     }
   }
 
@@ -116,7 +123,7 @@ class DatabaseHelper {
     ''');
   }
 
-  /// 创建库存移动记录表（v7，新增 voidReason 作废原因）
+  /// 创建库存移动记录表（v8）
   Future<void> _createStockMovementsTable(Database db) async {
     await db.execute('''
       CREATE TABLE $_movementsTable (
@@ -137,6 +144,8 @@ class DatabaseHelper {
         isDeleted INTEGER NOT NULL DEFAULT 0,
         imagePath TEXT,
         voidReason TEXT,
+        isSettled INTEGER NOT NULL DEFAULT 0,
+        remark TEXT,
         FOREIGN KEY (warehouseId) REFERENCES $_warehousesTable(id)
           ON DELETE RESTRICT
       )

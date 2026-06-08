@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../data/database_helper.dart';
 import '../models/stock_movement.dart';
 
 /// 记录详情页
@@ -203,30 +204,118 @@ class RecordDetailPage extends StatelessWidget {
 
           // ───── 金额明细 ─────
           _buildSectionTitle('金额明细'),
-          _buildInfoCard(children: [
-            _buildInfoRow(
-              label: '单价',
-              value: '¥${record.unitPrice.toStringAsFixed(2)} / 吨',
-            ),
-            _buildInfoRow(
-              label: '计算公式',
-              value:
-                  '(${record.quantity.toStringAsFixed(2)} kg ÷ 1000) × ${record.unitPrice.toStringAsFixed(2)}',
-              valueColor: Colors.grey.shade600,
-              fontSize: 13,
-            ),
-            const Divider(height: 24),
-            _buildInfoRow(
-              label: '总金额',
-              value: '¥${_totalAmount.toStringAsFixed(2)}',
-              isHighlight: true,
-              valueColor: Colors.teal,
-            ),
-          ]),
+          GestureDetector(
+            onTap: () => _editRemark(context),
+            child: _buildInfoCard(children: [
+              _buildInfoRow(
+                label: '单价',
+                value: '¥${record.unitPrice.toStringAsFixed(2)} / 吨',
+              ),
+              _buildInfoRow(
+                label: '计算公式',
+                value: '(${record.quantity.toStringAsFixed(2)} kg ÷ 1000) × ${record.unitPrice.toStringAsFixed(2)}',
+                valueColor: Colors.grey.shade600,
+                fontSize: 13,
+              ),
+              const Divider(height: 24),
+              _buildInfoRow(
+                label: '总金额',
+                value: '¥${_totalAmount.toStringAsFixed(2)}',
+                isHighlight: true,
+                valueColor: Colors.teal,
+              ),
+              // 结清状态
+              GestureDetector(
+                onTap: () => _toggleSettled(context),
+                child: Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: record.isSettled ? Colors.green.shade50 : Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: record.isSettled ? Colors.green : Colors.orange, width: 1.5),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(record.isSettled ? Icons.check_circle : Icons.pending,
+                      size: 16, color: record.isSettled ? Colors.green : Colors.orange),
+                    const SizedBox(width: 6),
+                    Text(record.isSettled ? '已结清' : '未结清',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold,
+                        color: record.isSettled ? Colors.green.shade800 : Colors.orange.shade800)),
+                  ]),
+                ),
+              ),
+              // 备注
+              if (record.remark != null && record.remark!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text('备注：${record.remark}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                ),
+            ]),
+          ),
           const SizedBox(height: 32),
         ],
       ),
     );
+  }
+
+  Future<void> _toggleSettled(BuildContext context) async {
+    if (record.isDeleted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(record.isSettled ? '标记为未结清？' : '确认已结清？'),
+        content: Text(record.isSettled ? '此操作会将该记录重新标记为未结清状态。' : '确认该笔款项已结清吗？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: record.isSettled ? Colors.orange : Colors.green),
+            child: Text(record.isSettled ? '确认未结清' : '确认已结清')),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      final updated = record.copyWith(isSettled: !record.isSettled, syncStatus: SyncStatus.pending);
+      await DatabaseHelper.instance.updateMovement(updated);
+      // Force rebuild by navigating back and re-opening
+      if (context.mounted) {
+        Navigator.of(context).pushReplacement(MaterialPageRoute(
+          builder: (_) => RecordDetailPage(record: updated, warehouseName: warehouseName),
+        ));
+      }
+    }
+  }
+
+  Future<void> _editRemark(BuildContext context) async {
+    if (record.isDeleted) return;
+    final controller = TextEditingController(text: record.remark);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('编辑备注'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(hintText: '输入备注信息', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('保存')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (confirmed == true) {
+      final updated = record.copyWith(remark: controller.text.trim().isEmpty ? null : controller.text.trim(), syncStatus: SyncStatus.pending);
+      await DatabaseHelper.instance.updateMovement(updated);
+      if (context.mounted) {
+        Navigator.of(context).pushReplacement(MaterialPageRoute(
+          builder: (_) => RecordDetailPage(record: updated, warehouseName: warehouseName),
+        ));
+      }
+    }
   }
 
   // ───── 头部概览卡片 ─────

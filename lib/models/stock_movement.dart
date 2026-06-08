@@ -1,6 +1,6 @@
 import 'package:uuid/uuid.dart';
 
-enum MovementType { inbound, outbound }
+enum MovementType { inbound, outbound, supply }
 enum SyncStatus { pending, syncing, synced, failed }
 
 /// 库存移动记录模型（毛纺厂专用版）
@@ -77,6 +77,12 @@ class StockMovement {
   /// 作废原因（v7）
   final String? voidReason;
 
+  /// 是否已结清（v8）
+  final bool isSettled;
+
+  /// 备注（v8）
+  final String? remark;
+
   StockMovement({
     String? id,
     required this.timestamp,
@@ -95,6 +101,8 @@ class StockMovement {
     this.isDeleted = false,
     this.imagePath,
     this.voidReason,
+    this.isSettled = false,
+    this.remark,
   }) : id = id ?? const Uuid().v4();
 
   /// 总金额（元）= (净重 kg / 1000) × 单价(元/吨)
@@ -122,6 +130,8 @@ class StockMovement {
         'isDeleted': isDeleted ? 1 : 0,
         'imagePath': imagePath,
         'voidReason': voidReason,
+        'isSettled': isSettled ? 1 : 0,
+        'remark': remark,
       };
 
   /// 从 JSON/Map 解析，所有字段均有安全兜底，防止 `type 'Null' is not a subtype` 崩溃
@@ -144,6 +154,8 @@ class StockMovement {
         isDeleted: (json['isDeleted'] as int?) == 1,
         imagePath: json['imagePath'] as String?,
         voidReason: json['voidReason'] as String?,
+        isSettled: (json['isSettled'] as int?) == 1,
+        remark: json['remark'] as String?,
       );
 
   StockMovement copyWith({
@@ -164,6 +176,8 @@ class StockMovement {
     bool? isDeleted,
     String? imagePath,
     String? voidReason,
+    bool? isSettled,
+    String? remark,
   }) =>
       StockMovement(
         id: id ?? this.id,
@@ -183,6 +197,8 @@ class StockMovement {
         isDeleted: isDeleted ?? this.isDeleted,
         imagePath: imagePath ?? this.imagePath,
         voidReason: voidReason ?? this.voidReason,
+        isSettled: isSettled ?? this.isSettled,
+        remark: remark ?? this.remark,
       );
 
   // ───── 安全解析辅助 ─────

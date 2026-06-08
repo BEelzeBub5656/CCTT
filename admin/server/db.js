@@ -48,6 +48,8 @@ function initialize() {
       isDeleted INTEGER NOT NULL DEFAULT 0,
       imagePath TEXT,
       voidReason TEXT,
+      isSettled INTEGER NOT NULL DEFAULT 0,
+      remark TEXT,
       FOREIGN KEY (warehouseId) REFERENCES warehouses(id) ON DELETE RESTRICT
     )
   `);
@@ -55,6 +57,12 @@ function initialize() {
   // 索引
   db.exec(`CREATE INDEX IF NOT EXISTS idx_movements_warehouse ON stock_movements(warehouseId)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_movements_sync ON stock_movements(syncStatus)`);
+
+  // 兼容旧数据库：补齐缺失的列
+  try { db.exec(`ALTER TABLE stock_movements ADD COLUMN imagePath TEXT`); } catch (_) {}
+  try { db.exec(`ALTER TABLE stock_movements ADD COLUMN voidReason TEXT`); } catch (_) {}
+  try { db.exec(`ALTER TABLE stock_movements ADD COLUMN isSettled INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+  try { db.exec(`ALTER TABLE stock_movements ADD COLUMN remark TEXT`); } catch (_) {}
 
   console.log('[DB] 数据库初始化完成:', DB_PATH);
   return db;

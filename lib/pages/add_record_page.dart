@@ -38,9 +38,12 @@ class _AddRecordPageState extends State<AddRecordPage> {
   List<Warehouse> _warehouses = [];
   String? _selectedWarehouseId;
   MovementType _selectedType = MovementType.inbound;
+  DateTime _selectedDate = DateTime.now();
 
   bool _isSaving = false;
   bool _isScanning = false;
+  bool _isSettled = false;
+  final _remarkController = TextEditingController();
   String? _capturedImagePath; // 拍照/选图后保存的本地照片路径
 
   @override
@@ -141,7 +144,10 @@ class _AddRecordPageState extends State<AddRecordPage> {
 
       final record = StockMovement(
         id: recordId,
-        timestamp: DateTime.now().millisecondsSinceEpoch,
+        timestamp: DateTime(
+          _selectedDate.year, _selectedDate.month, _selectedDate.day,
+          DateTime.now().hour, DateTime.now().minute, DateTime.now().second,
+        ).millisecondsSinceEpoch,
         partnerName: _partnerController.text.trim(),
         warehouseId: _selectedWarehouseId!,
         type: _selectedType,
@@ -157,6 +163,8 @@ class _AddRecordPageState extends State<AddRecordPage> {
             ? null
             : _deliveryPersonController.text.trim(),
         imagePath: finalImagePath,
+        isSettled: _isSettled,
+        remark: _remarkController.text.trim().isEmpty ? null : _remarkController.text.trim(),
       );
 
       await DatabaseHelper.instance.insertMovement(record);
@@ -319,7 +327,11 @@ class _AddRecordPageState extends State<AddRecordPage> {
                   _buildWarehouseCard(hasWarehouse),
                   const SizedBox(height: 16),
 
-                  // ───── 入库/出库切换 ─────
+                  // ───── 日期选择 ─────
+                  _buildDateCard(),
+                  const SizedBox(height: 16),
+
+                  // ───── 入库/出库/进货切换 ─────
                   _buildTypeCard(),
                   const SizedBox(height: 16),
 
@@ -638,7 +650,63 @@ class _AddRecordPageState extends State<AddRecordPage> {
                       );
                     },
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 16),
+
+                  // ───── 备注 ─────
+                  TextField(
+                    controller: _remarkController,
+                    decoration: const InputDecoration(
+                      labelText: '备注',
+                      hintText: '选填，可记录结算信息等',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.notes),
+                    ),
+                    maxLines: 2,
+                    textInputAction: TextInputAction.newline,
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ───── 是否结清 ─────
+                  Row(children: [
+                    const Icon(Icons.account_balance_wallet, color: Colors.teal, size: 20),
+                    const SizedBox(width: 8),
+                    const Text('是否结清', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    const Spacer(),
+                    ChoiceChip(
+                      label: Text('未结清', style: TextStyle(
+                        color: _isSettled ? null : Colors.orange.shade800,
+                        fontWeight: _isSettled ? FontWeight.normal : FontWeight.bold,
+                      )),
+                      selected: !_isSettled,
+                      selectedColor: Colors.orange.shade100,
+                      onSelected: (_) => setState(() => _isSettled = false),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: Text('已结清', style: TextStyle(
+                        color: _isSettled ? Colors.green.shade800 : null,
+                        fontWeight: _isSettled ? FontWeight.bold : FontWeight.normal,
+                      )),
+                      selected: _isSettled,
+                      selectedColor: Colors.green.shade100,
+                      onSelected: (_) async {
+                        // 二次确认
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('确认结清'),
+                            content: const Text('确认该笔款项已结清？\n此信息将同步到云端。'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确认')),
+                            ],
+                          ),
+                        );
+                        if (ok == true && mounted) setState(() => _isSettled = true);
+                      },
+                    ),
+                  ]),
+                  const SizedBox(height: 24),
 
                   // ───── 保存按钮 ─────
                   ElevatedButton.icon(
@@ -771,56 +839,77 @@ class _AddRecordPageState extends State<AddRecordPage> {
   }
 
   // ───── 操作类型卡片 ─────
-  Widget _buildTypeCard() {
+  Widget _buildDateCard() {
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            Icon(Icons.swap_horiz,
-                color: Theme.of(context).colorScheme.primary),
-            const SizedBox(width: 8),
-            Text(
-              '操作类型',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(children: [
+          const Icon(Icons.calendar_today, color: Colors.teal),
+          const SizedBox(width: 8),
+          const Text('单据日期', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.teal)),
+          const Spacer(),
+          TextButton.icon(
+            icon: const Icon(Icons.edit_calendar, size: 18),
+            label: Text(
+              '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
             ),
-            const Spacer(),
-            SegmentedButton<MovementType>(
-              segments: const [
-                ButtonSegment(
-                  value: MovementType.inbound,
-                  label: Text('入库'),
-                  icon: Icon(Icons.arrow_downward, size: 18),
+            onPressed: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _selectedDate,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2030),
+                builder: (context, child) => Localizations.override(
+                  context: context,
+                  locale: const Locale('zh'),
+                  child: child!,
                 ),
-                ButtonSegment(
-                  value: MovementType.outbound,
-                  label: Text('出库'),
-                  icon: Icon(Icons.arrow_upward, size: 18),
-                ),
-              ],
-              selected: {_selectedType},
-              onSelectionChanged: (set) {
-                setState(() => _selectedType = set.first);
-              },
-              style: SegmentedButton.styleFrom(
-                selectedBackgroundColor:
-                    _selectedType == MovementType.inbound
-                        ? Colors.green.shade100
-                        : Colors.red.shade100,
-                selectedForegroundColor:
-                    _selectedType == MovementType.inbound
-                        ? Colors.green.shade900
-                        : Colors.red.shade900,
-              ),
+              );
+              if (picked != null) setState(() => _selectedDate = picked);
+            },
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildTypeCard() {
+    Color typeColor(MovementType t) {
+      switch (t) {
+        case MovementType.inbound:  return Colors.green;
+        case MovementType.outbound: return Colors.red;
+        case MovementType.supply:   return Colors.orange;
+      }
+    }
+    String typeLabel(MovementType t) {
+      switch (t) {
+        case MovementType.inbound:  return '入库';
+        case MovementType.outbound: return '出库';
+        case MovementType.supply:   return '进货';
+      }
+    }
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(children: [
+          Icon(Icons.swap_horiz, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 8),
+          const Text('操作类型', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+          const Spacer(),
+          ...MovementType.values.map((t) => Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: ChoiceChip(
+              label: Text(typeLabel(t), style: TextStyle(fontSize: 12)),
+              visualDensity: VisualDensity.compact,
+              selected: _selectedType == t,
+              selectedColor: typeColor(t),
+              onSelected: (_) => setState(() => _selectedType = t),
             ),
-          ],
-        ),
+          )),
+        ]),
       ),
     );
   }

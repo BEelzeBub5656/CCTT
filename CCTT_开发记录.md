@@ -1,10 +1,10 @@
 # CCTT 项目开发记录文档
 
-文档生成日期：2026-06-07（初代版本 v1.0 收工）
+文档生成日期：2026-06-08（v1.1 功能增强）
 项目名称：CCTT（离线优先个人库存管理 App + Web 管理后台）
 技术栈：Flutter + Dart + SQLite + MQTT + Node.js + Express + better-sqlite3
-最新数据库版本：v7（新增 voidReason 作废原因字段）
-当前状态：🟢 初代版本已收工，等待使用反馈
+最新数据库版本：v8（新增 isSettled 结清 + remark 备注字段）
+当前状态：🟢 v1.1 完成，等待用户反馈
 
 ## 一、项目概述
 
@@ -641,5 +641,58 @@ at TextRecognizer.handleDetection()
 - 单元/Widget 测试缺失
 - release 模式未充分测试
 
-**初代版本已收工，等待后续使用反馈。**
-8. 添加单元测试和 Widget 测试（flutter_test 已引入）。
+**v1.1 继续迭代中。**
+
+### 2.22 第二十二阶段：进货类型 + 日期选择 + 羽毛笔菜单
+
+**时间：**2026-06-08
+
+**修改文件：**
+- `lib/models/stock_movement.dart` — MovementType 枚举新增 `supply`（进货/原材料）；toJson/fromJson/copyWith 同步更新
+- `lib/data/database_helper.dart` — 数据库版本 7→8；ALTER TABLE 迁移 v7(v8) 新增 isSettled / remark
+- `lib/pages/add_record_page.dart` — 新增日期选择卡片（showDatePicker，默认当日）；操作类型从 SegmentedButton 换为 3 个 ChoiceChip（入库绿色/出库红色/进货橙色）；新增备注输入框 + 结清二次确认选择
+- `lib/pages/home_page.dart` — 左上角垃圾桶图标替代设置齿轮，点击进入已作废记录列表（_DeletedRecordsPage）；记录卡片右上角羽毛笔图标 → PopupMenuButton（修改/作废）；删除长按修改功能；_filteredMovements 过滤 isDeleted；_autoSync 静默自动上传；上传前先下拉合并时序；作废二次确认含 5 个预设原因 + 自定义输入
+- `lib/pages/record_detail_page.dart` — 已作废红色横幅 + 作废原因显示；金额明细卡片增设结清状态徽章（点击切换）和备注编辑
+- `lib/main.dart` — MaterialApp 加 GlobalMaterialLocalizations 中文支持 + flutter_localizations 依赖
+
+**实现功能：**
+- 进货类型（橙色）与入库出库并列
+- 日期选择器（中文日历）
+- 记录操作从滑动改为弹出菜单
+- 垃圾桶页面集中管理已作废记录
+- 作废原因选择（5 个预设 + 自定义）
+- 新建/编辑/作废后自动上传
+- 结清状态标识 + 备注编辑
+
+### 2.23 第二十三阶段：同步架构修复 + Release APK 适配
+
+**时间：**2026-06-08
+
+**修改文件：**
+- `lib/services/sync_service.dart` — `onBadCertificate: (dynamic _) => true` 类型匹配；手机上传仅发 inbound，不再发 retain 快照（Master 统一管理）；pullSnapshot 保护 pending 记录不被覆盖；移除 snapshotIds.length >= 3 的误删保护
+- `lib/pages/home_page.dart` — ☁️↑ 上传改为"先推后拉"（上传本地 → 下拉 Master 快照）；_autoSync 加 1.5s 延迟等 Web 处理
+- `admin/server/mqtt.js` — 时间戳优先合并（existing.timestamp > incomingTs 时保留本地）；修复 FK 死循环（接收快照不再反刍）；仓库用 INSERT OR IGNORE + UPDATE name
+- `admin/server/db.js` — 兼容旧库 ALTER TABLE 补齐 imagePath/voidReason/isSettled/remark
+- `admin/server/routes/movements.js` — safeNum() 防 NaN；软删除存 voidReason；恢复清 voidReason
+- `android/app/src/main/AndroidManifest.xml` — INTERNET + ACCESS_NETWORK_STATE 权限
+- `android/app/src/main/res/xml/network_security_config.xml` — 新建，允许 EMQX 域名 TLS
+- `android/app/build.gradle.kts` — ProGuard 规则启用
+- `ios/Runner/Info.plist` — NSPhotoLibraryUsageDescription 权限
+
+**实现功能：**
+- 三台手机同时操作：时间戳优先，先到先得
+- Web 永久删除后手机下拉自动清理
+- Release APK 正常联网同步
+- 多手机 A下拉→A上传→B下拉 时序正确
+- 作废记录不被反弹
+- App 名称改为大写 CCTT
+
+**版本概览更新：**
+
+| 指标 | v1.0 | v1.1 |
+|---|---|---|
+| 数据库版本 | v7 | v8 |
+| StockMovement 字段 | 17 个 | 19 个（+isSettled +remark） |
+| MovementType | inbound/outbound | inbound/outbound/supply |
+| 已修 Bug | 40+ | 55+ |
+| 同步模式 | Master-Slave | Master-Slave + 时间戳冲突解决 |

@@ -38,11 +38,12 @@ function upsertRecordsAndWarehouses(records, warehouses) {
   // 仓库：先尝试 INSERT，已存在则只更新 name（避免 FK REPLACE 冲突）
   const insertWh = db.prepare('INSERT OR IGNORE INTO warehouses (id, name) VALUES (?, ?)');
   const updateWh = db.prepare('UPDATE warehouses SET name = ? WHERE id = ?');
+  const checkTs = db.prepare('SELECT timestamp FROM stock_movements WHERE id = ?');
   const insertMovement = db.prepare(`
     INSERT OR REPLACE INTO stock_movements
       (id, timestamp, partnerName, warehouseId, type, quantity, unitPrice, syncStatus,
-       color, variety, grossWeight, tareWeight, totalPieces, deliveryPerson, isDeleted, voidReason)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       color, variety, grossWeight, tareWeight, totalPieces, deliveryPerson, isDeleted, voidReason, isSettled, remark)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // 先写入仓库：新仓库直接插入，已存在的更新名称
@@ -58,15 +59,22 @@ function upsertRecordsAndWarehouses(records, warehouses) {
     }
   }
 
-  // 逐条写入记录
+  // 逐条写入记录（时间戳优先：仅当来电时间戳 ≥ 本地时才覆盖）
   let inserted = 0, skipped = 0;
   for (const rec of records) {
     if (!rec.id) continue;
     if (!rec.warehouseId) { skipped++; continue; }
     try {
+      const incomingTs = rec.timestamp || Date.now();
+      const existing = checkTs.get(rec.id);
+      if (existing && existing.timestamp > incomingTs) {
+        // 本地已有更新的版本，保留本地
+        skipped++;
+        continue;
+      }
       insertMovement.run(
         rec.id,
-        rec.timestamp || Date.now(),
+        incomingTs,
         rec.partnerName || '',
         rec.warehouseId,
         rec.type || 'outbound',
@@ -81,6 +89,8 @@ function upsertRecordsAndWarehouses(records, warehouses) {
         rec.deliveryPerson || null,
         rec.isDeleted || 0,
         rec.voidReason || null,
+        rec.isSettled || 0,
+        rec.remark || null,
       );
       inserted++;
     } catch (e) {
@@ -88,7 +98,7 @@ function upsertRecordsAndWarehouses(records, warehouses) {
       skipped++;
     }
   }
-  if (skipped > 0) console.log('[MQTT] 写入: ' + inserted + ' 条, 跳过: ' + skipped + ' 条');
+  if (skipped > 0) console.log('[MQTT] 写入: ' + inserted + ' 条, 跳过: ' + skipped + ' 条（时间戳旧）');
 }
 
 // ── 长连接订阅者 ──
