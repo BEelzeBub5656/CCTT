@@ -67,7 +67,7 @@ function upsertRecordsAndWarehouses(records, warehouses) {
     try {
       const incomingTs = rec.timestamp || Date.now();
       const existing = checkTs.get(rec.id);
-      if (existing && existing.timestamp > incomingTs) {
+      if (existing && existing.timestamp >= incomingTs) {
         // 本地已有更新的版本，保留本地
         skipped++;
         continue;

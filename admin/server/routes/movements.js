@@ -197,9 +197,9 @@ router.put('/:id', (req, res) => {
   db.prepare(`
     UPDATE stock_movements SET
       grossWeight = ?, tareWeight = ?, quantity = ?, unitPrice = ?,
-      totalPieces = ?, deliveryPerson = ?, syncStatus = 'pending'
+      totalPieces = ?, deliveryPerson = ?, syncStatus = 'pending', timestamp = ?
     WHERE id = ?
-  `).run(grossWeight, tareWeight, quantity, unitPrice, totalPieces, deliveryPerson, req.params.id);
+  `).run(grossWeight, tareWeight, quantity, unitPrice, totalPieces, deliveryPerson, Date.now(), req.params.id);
 
   const row = db.prepare(`
     SELECT m.*, w.name AS warehouseName
@@ -222,8 +222,8 @@ router.delete('/:id', (req, res) => {
   if (existing.isDeleted) return res.status(400).json({ error: '记录已作废' });
 
   const voidReason = req.body.voidReason || null;
-  db.prepare("UPDATE stock_movements SET isDeleted = 1, syncStatus = 'pending', voidReason = ? WHERE id = ?")
-    .run(voidReason, req.params.id);
+  db.prepare("UPDATE stock_movements SET isDeleted = 1, syncStatus = 'pending', voidReason = ?, timestamp = ? WHERE id = ?")
+    .run(voidReason, Date.now(), req.params.id);
 
   const row = db.prepare(`
     SELECT m.*, w.name AS warehouseName
@@ -258,7 +258,7 @@ router.post('/:id/restore', (req, res) => {
   if (!existing) return res.status(404).json({ error: '记录不存在' });
   if (!existing.isDeleted) return res.status(400).json({ error: '记录未被作废' });
 
-  db.prepare("UPDATE stock_movements SET isDeleted = 0, syncStatus = 'pending', voidReason = NULL WHERE id = ?").run(req.params.id);
+  db.prepare("UPDATE stock_movements SET isDeleted = 0, syncStatus = 'pending', voidReason = NULL, timestamp = ? WHERE id = ?").run(Date.now(), req.params.id);
 
   const row = db.prepare(`
     SELECT m.*, w.name AS warehouseName

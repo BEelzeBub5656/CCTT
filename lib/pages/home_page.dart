@@ -740,7 +740,7 @@ class _HomePageState extends State<HomePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) => reasonController.dispose());
 
     if (confirmed == true && mounted) {
-      final updated = record.copyWith(isDeleted: true, syncStatus: SyncStatus.pending, voidReason: reason);
+      final updated = record.copyWith(timestamp: DateTime.now().millisecondsSinceEpoch, isDeleted: true, syncStatus: SyncStatus.pending, voidReason: reason);
       await DatabaseHelper.instance.updateMovement(updated);
       await _loadData();
       _autoSync(); // 作废后自动上传

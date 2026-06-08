@@ -276,7 +276,7 @@ class RecordDetailPage extends StatelessWidget {
       ),
     );
     if (confirmed == true) {
-      final updated = record.copyWith(isSettled: !record.isSettled, syncStatus: SyncStatus.pending);
+      final updated = record.copyWith(timestamp: DateTime.now().millisecondsSinceEpoch, isSettled: !record.isSettled, syncStatus: SyncStatus.pending);
       await DatabaseHelper.instance.updateMovement(updated);
       // Force rebuild by navigating back and re-opening
       if (context.mounted) {
@@ -308,7 +308,7 @@ class RecordDetailPage extends StatelessWidget {
     );
     controller.dispose();
     if (confirmed == true) {
-      final updated = record.copyWith(remark: controller.text.trim().isEmpty ? null : controller.text.trim(), syncStatus: SyncStatus.pending);
+      final updated = record.copyWith(timestamp: DateTime.now().millisecondsSinceEpoch, remark: controller.text.trim().isEmpty ? null : controller.text.trim(), syncStatus: SyncStatus.pending);
       await DatabaseHelper.instance.updateMovement(updated);
       if (context.mounted) {
         Navigator.of(context).pushReplacement(MaterialPageRoute(

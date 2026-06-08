@@ -47,7 +47,8 @@ class SyncService {
     client.onBadCertificate = (dynamic _) => true;
     client.setProtocolV311();
     client.logging(on: false);
-    client.keepAlivePeriod = 30; // 30 秒心跳，防止被 Broker 踢掉
+    client.keepAlivePeriod = 30;
+    client.connectTimeoutPeriod = 5000; // 5 秒连接超时
     return client;
   }
 
@@ -183,20 +184,18 @@ class SyncService {
         }
       }
 
-      // 2. 写入 records — Master 覆盖，但保护本地 pending 记录
+      // 2. 写入 records — 时间戳优先：本地更新的不覆盖
       final snapshotIds = <String>{};
       final localRecords = await dbHelper.getAllMovements();
-      final localPendingIds = localRecords
-          .where((r) => r.syncStatus == SyncStatus.pending)
-          .map((r) => r.id)
-          .toSet();
+      final localMap = {for (final r in localRecords) r.id: r};
 
       if (recordsList.isNotEmpty) {
         for (final e in recordsList) {
           if (e is! Map<String, dynamic>) continue;
           final record = StockMovement.fromJson(e);
-          // 本地 pending 的记录不覆盖（正在等待上传，保护本地修改）
-          if (localPendingIds.contains(record.id)) {
+          final local = localMap[record.id];
+          // 本地版本时间戳更新 → 保留本地（刚修改过，优先）
+          if (local != null && local.timestamp > record.timestamp) {
             snapshotIds.add(record.id);
             continue;
           }

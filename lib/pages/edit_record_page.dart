@@ -29,6 +29,7 @@ class _EditRecordPageState extends State<EditRecordPage> {
 
   bool _isSaving = false;
   bool _isDeleting = false;
+  late DateTime _selectedDate;
 
   Warehouse? _warehouse;
 
@@ -46,6 +47,7 @@ class _EditRecordPageState extends State<EditRecordPage> {
         TextEditingController(text: r.totalPieces?.toString() ?? '');
     _deliveryPersonController =
         TextEditingController(text: r.deliveryPerson ?? '');
+    _selectedDate = DateTime.fromMillisecondsSinceEpoch(r.timestamp);
     _loadWarehouse();
   }
 
@@ -110,6 +112,8 @@ class _EditRecordPageState extends State<EditRecordPage> {
           : int.tryParse(_totalPiecesController.text.trim());
 
       final updated = widget.record.copyWith(
+        timestamp: DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day,
+          DateTime.now().hour, DateTime.now().minute, DateTime.now().second).millisecondsSinceEpoch,
         quantity: netWeight,
         grossWeight: grossWeight,
         tareWeight: tareWeight,
@@ -163,6 +167,8 @@ class _EditRecordPageState extends State<EditRecordPage> {
 
     try {
       final voided = widget.record.copyWith(
+        timestamp: DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day,
+          DateTime.now().hour, DateTime.now().minute, DateTime.now().second).millisecondsSinceEpoch,
         isDeleted: true,
         syncStatus: SyncStatus.pending,
       );
@@ -259,6 +265,37 @@ class _EditRecordPageState extends State<EditRecordPage> {
                       ),
                     ],
                   ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // ───── 日期修改 ─────
+              Card(
+                margin: EdgeInsets.zero,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(children: [
+                    const Icon(Icons.calendar_today, color: Colors.teal, size: 20),
+                    const SizedBox(width: 8),
+                    const Text('单据日期', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.teal)),
+                    const Spacer(),
+                    TextButton.icon(
+                      icon: const Icon(Icons.edit_calendar, size: 18),
+                      label: Text(
+                        '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2,'0')}-${_selectedDate.day.toString().padLeft(2,'0')}',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
+                      onPressed: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _selectedDate,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2030),
+                        );
+                        if (picked != null) setState(() => _selectedDate = picked);
+                      },
+                    ),
+                  ]),
                 ),
               ),
               const SizedBox(height: 16),
