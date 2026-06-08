@@ -60,6 +60,27 @@ process.on('unhandledRejection', (reason) => {
   console.error('[CCTT-Admin] 未处理的 Promise 拒绝:', reason);
 });
 
+// 定时清理：已作废超过 2 天的记录自动永久删除
+function startAutoCleanup() {
+  const { getDb } = require('./db');
+  const { publishSnapshot } = require('./mqtt');
+
+  const cleanup = () => {
+    try {
+      const db = getDb();
+      const cutoff = Date.now() - 2 * 24 * 60 * 60 * 1000; // 2 天前
+      const result = db.prepare('DELETE FROM stock_movements WHERE isDeleted = 1 AND timestamp < ?').run(cutoff);
+      if (result.changes > 0) {
+        console.log('[Cleanup] 自动清理 ' + result.changes + ' 条过期已作废记录');
+        publishSnapshot().then(r => console.log('[Cleanup] 快照已同步'));
+      }
+    } catch (e) { /* 静默 */ }
+  };
+
+  setInterval(cleanup, 60 * 60 * 1000); // 每小时检查一次
+  console.log('[Cleanup] 自动清理已启动（已作废超过2天自动删除）');
+}
+
 // 启动服务器
 app.listen(PORT, () => {
   console.log('[CCTT-Admin] Web 管理系统已启动');
@@ -73,4 +94,7 @@ app.listen(PORT, () => {
   } catch (err) {
     console.error('[CCTT-Admin] MQTT 订阅者启动失败:', err.message);
   }
+
+  // 启动自动清理
+  startAutoCleanup();
 });

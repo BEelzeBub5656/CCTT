@@ -251,26 +251,4 @@ router.delete('/:id/hard', (req, res) => {
   triggerSnapshot('永久删除记录');
 });
 
-// POST /api/movements/:id/restore — 恢复软删除记录
-router.post('/:id/restore', (req, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT * FROM stock_movements WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: '记录不存在' });
-  if (!existing.isDeleted) return res.status(400).json({ error: '记录未被作废' });
-
-  db.prepare("UPDATE stock_movements SET isDeleted = 0, syncStatus = 'pending', voidReason = NULL, timestamp = ? WHERE id = ?").run(Date.now(), req.params.id);
-
-  const row = db.prepare(`
-    SELECT m.*, w.name AS warehouseName
-    FROM stock_movements m
-    LEFT JOIN warehouses w ON m.warehouseId = w.id
-    WHERE m.id = ?
-  `).get(req.params.id);
-
-  res.json(enrich(row));
-
-  // 自动更新云端快照
-  triggerSnapshot('恢复记录');
-});
-
 module.exports = router;

@@ -35,6 +35,7 @@ class PullResult {
 class SyncService {
   static const _publishTopic = 'cctt/sync/inbound';
   static const _snapshotTopic = 'cctt/sync/snapshot';
+  static const _ackTopic = 'cctt/sync/ack';
 
   /// 从 SettingsService 读取动态 MQTT 配置
   static Future<MqttServerClient> _createClient() async {
@@ -102,7 +103,6 @@ class SyncService {
       builder.addUTF8String(payload);
 
       // 仅发送到 inbound，由 Web（Master）接手处理并发布权威快照
-      // 手机端不直接发快照，避免多手机时的 retain 覆盖冲突
       client.publishMessage(
         _publishTopic,
         MqttQos.atLeastOnce,
@@ -110,7 +110,24 @@ class SyncService {
       );
 
       await dbHelper.updateSyncStatus(ids, SyncStatus.synced);
-      return '成功同步 ${pendingRecords.length} 条记录';
+
+      // 等待 Web 的 Ack（Web 处理完并发布快照后会通知到 ack 主题）
+      client.subscribe(_ackTopic, MqttQos.atLeastOnce);
+      final ackStream = client.updates;
+      if (ackStream != null) {
+        try {
+          await ackStream.first.timeout(
+            const Duration(seconds: 8),
+          );
+        } catch (_) {
+          // 超时也继续下拉（尽力而为）
+        }
+        client.unsubscribe(_ackTopic);
+      }
+
+      // Ack 确认后拉取最新快照（复用当前连接）
+      final pullResult = await pullSnapshot(client: client);
+      return '同步完成: ${pullResult.message}';
     } catch (e) {
       await dbHelper.updateSyncStatus(ids, SyncStatus.failed);
       return '同步失败: $e';
@@ -128,9 +145,9 @@ class SyncService {
   /// 已存在的本地记录绝不覆盖。
   ///
   /// **异常安全原则**：监听 updates 设 5 秒超时，任何异常都在 finally 中 disconnect。
-  static Future<PullResult> pullSnapshot() async {
+  static Future<PullResult> pullSnapshot({MqttServerClient? client}) async {
     final dbHelper = DatabaseHelper.instance;
-    MqttServerClient? client;
+    final bool ownClient = client == null;
 
     // 拉取前统计本地记录数，用于计算新增量
     final beforeMovements = await dbHelper.getAllMovements();
@@ -138,9 +155,11 @@ class SyncService {
     int whAdded = 0;
 
     try {
-      client = await _createClient();
-      final creds = await _getCredentials();
-      await client.connect(creds['username']!, creds['password']!);
+      client ??= await _createClient();
+      if (ownClient) {
+        final creds = await _getCredentials();
+        await client.connect(creds['username']!, creds['password']!);
+      }
 
       if (client.connectionStatus?.state != MqttConnectionState.connected) {
         throw Exception(
@@ -184,7 +203,7 @@ class SyncService {
         }
       }
 
-      // 2. 写入 records — 时间戳优先：本地更新的不覆盖
+      // 2. 写入 records — 时间戳优先 + pending 保护
       final snapshotIds = <String>{};
       final localRecords = await dbHelper.getAllMovements();
       final localMap = {for (final r in localRecords) r.id: r};
@@ -194,10 +213,24 @@ class SyncService {
           if (e is! Map<String, dynamic>) continue;
           final record = StockMovement.fromJson(e);
           final local = localMap[record.id];
-          // 本地版本时间戳更新 → 保留本地（刚修改过，优先）
-          if (local != null && local.timestamp > record.timestamp) {
-            snapshotIds.add(record.id);
-            continue;
+          if (local != null) {
+            // 终态保护：本地已作废，且快照不是更新的 → 不允许复活
+            // 但如果 Web 刚恢复了（时间戳更新），则应接受恢复
+            if (local.isDeleted && !record.isDeleted && local.timestamp >= record.timestamp) {
+              snapshotIds.add(record.id);
+              continue;
+            }
+            // 保护2：本地有未提交修改（pending/syncing），拒绝任何覆盖
+            if (local.syncStatus == SyncStatus.pending ||
+                local.syncStatus == SyncStatus.syncing) {
+              snapshotIds.add(record.id);
+              continue;
+            }
+            // 保护3：本地时间戳不旧于快照 → 保留本地
+            if (local.timestamp >= record.timestamp) {
+              snapshotIds.add(record.id);
+              continue;
+            }
           }
           await dbHelper.insertMovement(record, conflictAlgorithm: ConflictAlgorithm.replace);
           snapshotIds.add(record.id);
@@ -238,7 +271,7 @@ class SyncService {
         message: '拉取快照失败: $e',
       );
     } finally {
-      client?.disconnect();
+      if (ownClient) client?.disconnect();
     }
   }
 }

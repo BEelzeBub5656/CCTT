@@ -295,7 +295,7 @@ class _HomePageState extends State<HomePage> {
   void _autoSync() {
     SyncService.syncPendingRecords().then((_) async {
       // 等 Web 处理完并发快照（去抖 800ms + 网络延迟）
-      await Future.delayed(const Duration(milliseconds: 1500));
+      await Future.delayed(const Duration(milliseconds: 2000));
       final r = await SyncService.pullSnapshot();
       if (mounted) {
         setState(() { _cloudNewCount = r.addedCount; _cloudChecked = true; });
@@ -471,24 +471,30 @@ class _HomePageState extends State<HomePage> {
                       ),
                       child: Text(
                         _selectedWarehouseId == null
-                            ? '所有仓库'
-                            : _warehouseName(_selectedWarehouseId!),
+                            ? '所有仓库（${_movements.where((m) => !m.isDeleted).length}）'
+                            : '${_warehouseName(_selectedWarehouseId!)}（${_movements.where((m) => !m.isDeleted && m.warehouseId == _selectedWarehouseId).length}）',
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     onSelected: (value) {
                       if (mounted) setState(() => _selectedWarehouseId = value);
                     },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem<String?>(
-                        value: null,
-                        child: Text('所有仓库', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                      ..._warehouses.map((w) => PopupMenuItem<String?>(
-                        value: w.id,
-                        child: Text(w.name),
-                      )),
-                    ],
+                    itemBuilder: (_) {
+                      final totalActive = _movements.where((m) => !m.isDeleted).length;
+                      return [
+                        PopupMenuItem<String?>(
+                          value: null,
+                          child: Text('所有仓库（$totalActive）', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                        ..._warehouses.map((w) {
+                          final count = _movements.where((m) => !m.isDeleted && m.warehouseId == w.id).length;
+                          return PopupMenuItem<String?>(
+                            value: w.id,
+                            child: Text('${w.name}（$count）'),
+                          );
+                        }),
+                      ];
+                    },
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -740,7 +746,9 @@ class _HomePageState extends State<HomePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) => reasonController.dispose());
 
     if (confirmed == true && mounted) {
-      final updated = record.copyWith(timestamp: DateTime.now().millisecondsSinceEpoch, isDeleted: true, syncStatus: SyncStatus.pending, voidReason: reason);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final ts = now > record.timestamp ? now : record.timestamp + 1;
+      final updated = record.copyWith(timestamp: ts, isDeleted: true, syncStatus: SyncStatus.pending, voidReason: reason);
       await DatabaseHelper.instance.updateMovement(updated);
       await _loadData();
       _autoSync(); // 作废后自动上传

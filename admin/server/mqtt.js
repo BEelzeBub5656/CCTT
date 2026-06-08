@@ -239,13 +239,16 @@ function publishSnapshot() {
     client.on('connect', () => {
       client.publish(snapshotTopic, payloadBuffer, { qos: 1, retain: true }, (err) => {
         clearTimeout(timeout);
-        client.end();
         if (err) {
+          client.end();
           reject(err);
         } else {
-          // 快照发布成功后，所有记录标记为"已同步给手机"
+          // 快照发布成功后，发 Ack 通知所有手机可以下拉了
+          client.publish('cctt/sync/ack', 'snapshot-ready', { qos: 0 }, () => {
+            client.end();
+          });
           db.prepare("UPDATE stock_movements SET syncStatus = 'synced'").run();
-          console.log('[MQTT] 快照已发布: ' + allMovements.length + ' 条记录, ' + allWarehouses.length + ' 个仓库（全部标记为已同步）');
+          console.log('[MQTT] 快照已发布: ' + allMovements.length + ' 条记录, ' + allWarehouses.length + ' 个仓库 + Ack');
           resolve({
             recordCount: allMovements.length,
             warehouseCount: allWarehouses.length,

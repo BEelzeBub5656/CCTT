@@ -123,7 +123,6 @@ function renderTable(rows) {
               <td class="actions-cell" onclick="event.stopPropagation()">
                 <a class="btn btn-sm btn-outline" href="#/movements/${r.id}" title="详情"><i class="fa-solid fa-eye"></i></a>
                 ${r.isDeleted ? `
-                  <button class="btn btn-sm btn-outline" onclick="window.restoreMovement('${r.id}')" title="恢复"><i class="fa-solid fa-rotate-left"></i></button>
                   <button class="btn btn-sm btn-danger" onclick="window.hardDeleteMovement('${r.id}','${esc(r.partnerName)}')" title="永久删除"><i class="fa-solid fa-trash"></i></button>
                 ` : `
                   <a class="btn btn-sm btn-outline" href="#/movements/${r.id}/edit" title="编辑"><i class="fa-solid fa-pen"></i></a>
@@ -182,16 +181,6 @@ window.submitVoid = async function(id) {
     await api.del('/api/movements/' + id);
     window.showToast('记录已作废', 'success');
     closeModal();
-    loadData();
-  } catch (e) {
-    window.showToast(e.message, 'error');
-  }
-};
-
-window.restoreMovement = async function(id) {
-  try {
-    await api.post('/api/movements/' + id + '/restore');
-    window.showToast('记录已恢复', 'success');
     loadData();
   } catch (e) {
     window.showToast(e.message, 'error');

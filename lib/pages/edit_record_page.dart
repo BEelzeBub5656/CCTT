@@ -111,9 +111,11 @@ class _EditRecordPageState extends State<EditRecordPage> {
           ? null
           : int.tryParse(_totalPiecesController.text.trim());
 
+      final selectedTs = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day,
+          DateTime.now().hour, DateTime.now().minute, DateTime.now().second).millisecondsSinceEpoch;
+      final ts = selectedTs > widget.record.timestamp ? selectedTs : widget.record.timestamp + 1;
       final updated = widget.record.copyWith(
-        timestamp: DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day,
-          DateTime.now().hour, DateTime.now().minute, DateTime.now().second).millisecondsSinceEpoch,
+        timestamp: ts,
         quantity: netWeight,
         grossWeight: grossWeight,
         tareWeight: tareWeight,
@@ -166,9 +168,11 @@ class _EditRecordPageState extends State<EditRecordPage> {
     setState(() => _isDeleting = true);
 
     try {
+      final selectedTs = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day,
+          DateTime.now().hour, DateTime.now().minute, DateTime.now().second).millisecondsSinceEpoch;
+      final voidTs = selectedTs > widget.record.timestamp ? selectedTs : widget.record.timestamp + 1;
       final voided = widget.record.copyWith(
-        timestamp: DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day,
-          DateTime.now().hour, DateTime.now().minute, DateTime.now().second).millisecondsSinceEpoch,
+        timestamp: voidTs,
         isDeleted: true,
         syncStatus: SyncStatus.pending,
       );
@@ -290,7 +294,7 @@ class _EditRecordPageState extends State<EditRecordPage> {
                           context: context,
                           initialDate: _selectedDate,
                           firstDate: DateTime(2020),
-                          lastDate: DateTime(2030),
+                          lastDate: DateTime.now(),
                         );
                         if (picked != null) setState(() => _selectedDate = picked);
                       },

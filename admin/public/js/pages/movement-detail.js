@@ -142,8 +142,6 @@ export async function renderMovementDetail(id) {
       <!-- 操作按钮 -->
       <div class="btn-group" style="justify-content:center;margin-top:20px">
         <a class="btn btn-outline" href="#/movements"><i class="fa-solid fa-arrow-left"></i> 返回列表</a>
-        ${r.isDeleted ? `
-          <button class="btn btn-outline" onclick="window.restoreFromDetail('${r.id}')"><i class="fa-solid fa-rotate-left"></i> 恢复记录</button>
         ` : `
           <a class="btn btn-outline" href="#/movements/${r.id}/edit"><i class="fa-solid fa-pen"></i> 编辑</a>
           <button class="btn btn-danger" onclick="window.voidFromDetail('${r.id}','${esc(r.partnerName)}')"><i class="fa-solid fa-ban"></i> 作废</button>
@@ -182,13 +180,3 @@ window.submitVoidDetail = async function(id) {
   }
 };
 
-window.restoreFromDetail = async function(id) {
-  try {
-    await api.post('/api/movements/' + id + '/restore');
-    window.showToast('记录已恢复', 'success');
-    location.hash = '#/movements/' + id;
-    renderMovementDetail(id);
-  } catch (e) {
-    window.showToast(e.message, 'error');
-  }
-};

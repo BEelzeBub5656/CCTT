@@ -860,7 +860,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
                 context: context,
                 initialDate: _selectedDate,
                 firstDate: DateTime(2020),
-                lastDate: DateTime(2030),
+                lastDate: DateTime.now(),
                 builder: (context, child) => Localizations.override(
                   context: context,
                   locale: const Locale('zh'),
