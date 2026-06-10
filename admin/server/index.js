@@ -29,6 +29,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api/warehouses', require('./routes/warehouses'));
 app.use('/api/movements', require('./routes/movements'));
 app.use('/api/stats', require('./routes/stats'));
+app.use('/api/orders', require('./routes/orders'));
 app.use('/api/sync', require('./routes/sync'));
 
 // SPA fallback — 所有非 API 路由返回 index.html

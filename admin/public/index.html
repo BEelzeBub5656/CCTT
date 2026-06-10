@@ -27,6 +27,9 @@
     <a href="#/dashboard" class="nav-link" data-route="dashboard">
       <i class="fa-solid fa-chart-pie"></i> 仪表盘
     </a>
+    <a href="#/orders" class="nav-link" data-route="orders">
+      <i class="fa-solid fa-file-invoice"></i> 单据
+    </a>
     <a href="#/movements" class="nav-link" data-route="movements">
       <i class="fa-solid fa-arrow-right-arrow-left"></i> 出入库
     </a>
@@ -77,6 +80,7 @@ import { renderMovementForm } from '/js/pages/movement-form.js';
 import { renderMovementDetail } from '/js/pages/movement-detail.js';
 import { renderWarehouses } from '/js/pages/warehouses.js';
 import { renderSettings } from '/js/pages/settings.js';
+import { renderOrders } from '/js/pages/orders.js';
 
 // 路由注册
 router.on('#/dashboard', () => renderDashboard());
@@ -84,6 +88,7 @@ router.on('#/movements', () => renderMovements());
 router.on('#/movements/new', () => renderMovementForm());
 router.on('#/movements/:id', (p) => renderMovementDetail(p.id));
 router.on('#/movements/:id/edit', (p) => renderMovementForm(p.id));
+router.on('#/orders', () => renderOrders());
 router.on('#/warehouses', () => renderWarehouses());
 router.on('#/settings', () => renderSettings());
 

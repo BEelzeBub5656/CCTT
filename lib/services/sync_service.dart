@@ -67,17 +67,30 @@ class SyncService {
   /// 并在 [finally] 中确保 [client.disconnect]。
   static Future<String> syncPendingRecords() async {
     final dbHelper = DatabaseHelper.instance;
-    final allRecords = await dbHelper.getAllMovements();
 
+    // 检查旧 StockMovement 和 新 Order 的待同步数量
+    final allRecords = await dbHelper.getAllMovements();
     final pendingRecords = allRecords
         .where((r) => r.syncStatus != SyncStatus.synced)
         .toList();
-    if (pendingRecords.isEmpty) {
+    final pendingOrders = await dbHelper.getPendingOrders();
+
+    if (pendingRecords.isEmpty && pendingOrders.isEmpty) {
       return '当前没有需要同步的记录';
     }
 
     final ids = pendingRecords.map((e) => e.id).toList();
-    await dbHelper.updateSyncStatus(ids, SyncStatus.syncing);
+    // 标记旧 records 为 syncing
+    if (ids.isNotEmpty) {
+      await dbHelper.updateSyncStatus(ids, SyncStatus.syncing);
+    }
+    // 标记新 orders 为 syncing
+    if (pendingOrders.isNotEmpty) {
+      await dbHelper.updateOrderSyncStatusBatch(
+        pendingOrders.map((o) => o.id).toList(),
+        SyncStatus.syncing,
+      );
+    }
 
     // 收集全量仓库（快照恢复需要完整仓库列表，不能只打包关联仓库）
     final allWarehouses = await dbHelper.getAllWarehouses();
@@ -124,6 +137,15 @@ class SyncService {
 
       await dbHelper.updateSyncStatus(ids, SyncStatus.synced);
 
+      // 同时标记 pending 的 Orders 为 synced
+      final pendingOrders = await dbHelper.getPendingOrders();
+      if (pendingOrders.isNotEmpty) {
+        await dbHelper.updateOrderSyncStatusBatch(
+          pendingOrders.map((o) => o.id).toList(),
+          SyncStatus.synced,
+        );
+      }
+
       // 等待 Web 的 Ack（Web 处理完并发布快照后会通知到 ack 主题）
       client.subscribe(_ackTopic, MqttQos.atLeastOnce);
       final ackStream = client.updates;
@@ -143,6 +165,14 @@ class SyncService {
       return '同步完成: ${pullResult.message}';
     } catch (e) {
       await dbHelper.updateSyncStatus(ids, SyncStatus.failed);
+      // 也标记 pending Orders 为 failed
+      final pendingOrders = await dbHelper.getPendingOrders();
+      if (pendingOrders.isNotEmpty) {
+        await dbHelper.updateOrderSyncStatusBatch(
+          pendingOrders.map((o) => o.id).toList(),
+          SyncStatus.failed,
+        );
+      }
       return '同步失败: $e';
     } finally {
       client?.disconnect();
