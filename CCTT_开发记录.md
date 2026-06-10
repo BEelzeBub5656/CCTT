@@ -1,10 +1,10 @@
 # CCTT 项目开发记录文档
 
-文档生成日期：2026-06-08（v1.1 功能增强）
+文档生成日期：2026-06-08（v2.0 主单据架构）
 项目名称：CCTT（离线优先个人库存管理 App + Web 管理后台）
 技术栈：Flutter + Dart + SQLite + MQTT + Node.js + Express + better-sqlite3
-最新数据库版本：v8（新增 isSettled 结清 + remark 备注字段）
-当前状态：🟢 v1.1 完成，等待用户反馈
+最新数据库版本：v9（新增 orders + order_items + order_fees 主单据架构）
+当前状态：🟡 v2.0 测试中
 
 ## 一、项目概述
 
@@ -696,3 +696,41 @@ at TextRecognizer.handleDetection()
 | MovementType | inbound/outbound | inbound/outbound/supply |
 | 已修 Bug | 40+ | 55+ |
 | 同步模式 | Master-Slave | Master-Slave + 时间戳冲突解决 |
+
+### 2.24 第二十四阶段：v2.0 主单据+明细+费用架构重构
+
+**时间：**2026-06-08
+
+**背景：**用户提供 Excel 数据示例，要求支持主单据(Order)挂多条货物明细(OrderItem)和额外费用(OrderFee)，自动合并同客户+同日期+同类型的记录。
+
+**新增文件：**
+- `lib/models/order.dart` — Order / OrderItem / OrderFee / OrderDetail 模型类
+- `lib/pages/add_order_page.dart` — 主单据录入页（客户/仓库/类型/日期/备注/结清）
+- `lib/pages/add_order_item_page.dart` — 明细编辑页（货物名称/数量/单价/毛重扣皮/拍照 + 额外费用 + 总计）
+- `lib/pages/order_detail_page.dart` — 主单据详情页（明细列表 + 费用列表 + 总计 + 作废）
+
+**修改文件：**
+- `lib/data/database_helper.dart` — v8→v9 迁移；新增 orders/order_items/order_fees 三表；旧数据自动迁移；Order/OrderItem/OrderFee 完整 CRUD；getOrderDetail 聚合视图
+- `lib/services/sync_service.dart` — 上传打包 Orders+Items+Fees；下拉同步处理 Orders；Order syncStatus 管理
+- `lib/pages/home_page.dart` — 主页显示 Order 卡片（去重品类）+ 旧 StockMovement 共存；_filteredOrders；_buildOrderCard
+- `lib/pages/add_record_page.dart` — 修复拍照失败弹窗关闭
+- `admin/server/db.js` — orders/order_items/order_fees 表创建 + 兼容旧库
+- `admin/server/mqtt.js` — upsertOrders 时间戳优先；publishSnapshot 含 Order；Ack 发布
+
+**实现功能：**
+- 主单据(Order) + 多条货物明细(OrderItem) + 额外费用(OrderFee) 三层模型
+- 同客户+同日期+同仓库+同类型自动合并，弹窗提示
+- 明细编辑支持毛重/扣皮展开、拍照留档、送货人、件数
+- 额外费用：名称+金额+备注，挂主单据
+- 主页 Order 卡片：品类去重显示、类型三色标签
+- 旧 StockMovement 自动迁移到 Order，新旧模型共存
+- 同步管线：Order+Item+Fee 打包上传/下拉/Web 入库
+
+**版本概览更新：**
+
+| 指标 | v1.1 | v2.0 |
+|---|---|---|
+| 数据库版本 | v8 | v9 |
+| 数据表 | 2 张 | 5 张（+orders +order_items +order_fees） |
+| 模型 | StockMovement 单一 | Order + OrderItem + OrderFee |
+| 同步单位 | 单条记录 | 主单据（含明细+费用） |
