@@ -734,3 +734,22 @@ at TextRecognizer.handleDetection()
 | 数据表 | 2 张 | 5 张（+orders +order_items +order_fees） |
 | 模型 | StockMovement 单一 | Order + OrderItem + OrderFee |
 | 同步单位 | 单条记录 | 主单据（含明细+费用） |
+
+#### v2.0 修复（2026-06-08）
+
+**同步修复：**
+- `sync_service.dart` — `syncPendingRecords` 同时检查 Order 和 StockMovement 的待同步状态；上传后标记 Order 为 synced；拉取失败时标记 failed
+- `database_helper.dart` — 所有 Order/OrderItem/OrderFee 查询方法加入自动建表保护，解决 release 版本"no such table: orders"崩溃
+
+**自动合并修复：**
+- `add_order_page.dart` — 合并条件加 `o.type == _selectedType`，不同类型不合并；合并弹窗显示现有货物数量
+
+**Web 端修复：**
+- 新增 `admin/server/routes/orders.js` — Order API（列表+详情）
+- 新增 `admin/public/js/pages/orders.js` — 单据列表页 + 详情页
+- `admin/public/index.html` — 新增「单据」导航标签
+- `admin/server/routes/stats.js` — 仪表盘合并 Order + StockMovement 统计
+- `admin/server/mqtt.js` + `admin/server/db.js` — orders/items/fees 表创建、upsertOrder、snapshot 整合
+
+**UI 修复：**
+- `home_page.dart` — Order 卡片品类去重显示（`toSet()`）
