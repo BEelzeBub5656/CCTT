@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../data/database_helper.dart';
+import '../models/order.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 import 'settings_service.dart';
@@ -93,9 +94,21 @@ class SyncService {
         );
       }
 
-      // 打包全量数据（records + warehouses）
+      // 打包全量数据（旧 records + 新 orders/items/fees + warehouses）
+      final allOrders = await dbHelper.getAllOrders();
+      final orderPayload = <Map<String, dynamic>>[];
+      for (final o in allOrders) {
+        final items = await dbHelper.getOrderItems(o.id);
+        final fees = await dbHelper.getOrderFees(o.id);
+        orderPayload.add({
+          'order': o.toJson(),
+          'items': items.map((i) => i.toJson()).toList(),
+          'fees': fees.map((f) => f.toJson()).toList(),
+        });
+      }
       final payload = jsonEncode({
         'records': allRecords.map((e) => e.toJson()).toList(),
+        'orders': orderPayload,
         'warehouses': allWarehouses.map((e) => e.toJson()).toList(),
       });
 
@@ -190,6 +203,7 @@ class SyncService {
       final Map<String, dynamic> data =
           jsonDecode(payloadString) as Map<String, dynamic>;
       final List<dynamic> recordsList = data['records'] as List<dynamic>? ?? [];
+      final List<dynamic> ordersList = data['orders'] as List<dynamic>? ?? [];
       final List<dynamic> warehousesList =
           data['warehouses'] as List<dynamic>? ?? [];
 
@@ -234,6 +248,37 @@ class SyncService {
           }
           await dbHelper.insertMovement(record, conflictAlgorithm: ConflictAlgorithm.replace);
           snapshotIds.add(record.id);
+        }
+      }
+
+      // 2.5 处理 Orders（含 items 和 fees）
+      for (final oe in ordersList) {
+        if (oe is! Map<String, dynamic>) continue;
+        final orderJson = oe['order'] as Map<String, dynamic>?;
+        if (orderJson == null) continue;
+        final order = Order.fromJson(orderJson);
+        final itemsJson = (oe['items'] as List<dynamic>?) ?? [];
+        final feesJson = (oe['fees'] as List<dynamic>?) ?? [];
+
+        // 时间戳保护
+        final localOrder = await dbHelper.getOrderById(order.id);
+        if (localOrder != null && localOrder.timestamp >= order.timestamp && localOrder.syncStatus != SyncStatus.syncing) {
+          continue;
+        }
+
+        await dbHelper.insertOrder(order);
+        // 清除旧明细/费用，写入新数据
+        final oldItems = await dbHelper.getOrderItems(order.id);
+        final oldFees = await dbHelper.getOrderFees(order.id);
+        for (final oi in oldItems) { await dbHelper.deleteOrderItem(oi.id); }
+        for (final of in oldFees) { await dbHelper.deleteOrderFee(of.id); }
+        for (final ij in itemsJson) {
+          if (ij is! Map<String, dynamic>) continue;
+          await dbHelper.insertOrderItem(OrderItem.fromJson(ij));
+        }
+        for (final fj in feesJson) {
+          if (fj is! Map<String, dynamic>) continue;
+          await dbHelper.insertOrderFee(OrderFee.fromJson(fj));
         }
       }
 

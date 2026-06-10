@@ -1098,7 +1098,7 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
       return;
     }
     setState(() {
-      _weights.add(value);
+      _weights.insert(0, value); // 新数据在旧数据之前
       _input = '';
     });
   }
@@ -1212,43 +1212,38 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                   ? Center(
                       child: Text(
                         '点击下方数字键盘录入毛重',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade500,
-                        ),
+                        style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
                       ),
                     )
                   : Padding(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 16),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children:
-                            _weights.asMap().entries.map((entry) {
-                          final idx = entry.key;
-                          final weight = entry.value;
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: GridView.builder(
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          mainAxisSpacing: 8,
+                          crossAxisSpacing: 8,
+                          childAspectRatio: 3.5,
+                        ),
+                        itemCount: _weights.length,
+                        itemBuilder: (context, index) {
+                          final weight = _weights[index];
+                          final num = _weights.length - index; // 最早录入=1，最新=n
                           return Chip(
                             avatar: CircleAvatar(
                               backgroundColor: Colors.teal.shade100,
-                              child: Text(
-                                '${idx + 1}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.teal.shade800,
-                                ),
-                              ),
+                              radius: 10,
+                              child: Text('$num',
+                                style: TextStyle(fontSize: 10, color: Colors.teal.shade800)),
                             ),
-                            label: Text(
-                              '${weight.toStringAsFixed(2)} kg',
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                            deleteIcon:
-                                const Icon(Icons.close, size: 18),
-                            onDeleted: () => _onDeleteItem(idx),
+                            label: Text(weight.toStringAsFixed(2),
+                              style: const TextStyle(fontSize: 13)),
+                            deleteIcon: const Icon(Icons.close, size: 16),
+                            onDeleted: () => _onDeleteItem(index),
                             backgroundColor: Colors.grey.shade100,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            padding: EdgeInsets.zero,
                           );
-                        }).toList(),
+                        },
                       ),
                     ),
             ),
@@ -1264,19 +1259,19 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    '当前输入',
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
-                  ),
-                  Text(
-                    _input.isEmpty ? '—' : '$_input kg',
-                    style: TextStyle(
+                  const Text('当前输入', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                  Expanded(
+                    child: Text(
+                      _input.isEmpty ? '—' : '$_input kg',
+                      textAlign: TextAlign.left,
+                      style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                       color: theme.colorScheme.primary,
                     ),
                   ),
-                ],
+                ),
+              ],
               ),
             ),
             Expanded(
@@ -1382,7 +1377,7 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
           child: Text(
             label,
             style: TextStyle(
-              fontSize: label == '⌫' ? 22 : 26,
+              fontSize: label == '⌫' ? 18 : 22,
               fontWeight: FontWeight.w500,
               color: label == '⌫'
                   ? Colors.red.shade700

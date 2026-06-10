@@ -101,6 +101,38 @@ function upsertRecordsAndWarehouses(records, warehouses) {
   if (skipped > 0) console.log('[MQTT] 写入: ' + inserted + ' 条, 跳过: ' + skipped + ' 条（时间戳旧）');
 }
 
+function upsertOrders(orders) {
+  if (!orders.length) return;
+  const db = getDb();
+  const checkTs = db.prepare('SELECT timestamp FROM orders WHERE id = ?');
+  const insOrder = db.prepare(`INSERT OR REPLACE INTO orders (id, partnerName, warehouseId, type, timestamp, syncStatus, isDeleted, isSettled, remark, voidReason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insItem = db.prepare(`INSERT OR REPLACE INTO order_items (id, orderId, itemName, quantity, unitPrice, grossWeight, tareWeight, totalPieces, deliveryPerson, imagePath, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insFee = db.prepare(`INSERT OR REPLACE INTO order_fees (id, orderId, feeName, amount, remark, sortOrder) VALUES (?, ?, ?, ?, ?, ?)`);
+
+  for (const oe of orders) {
+    const o = oe.order;
+    if (!o || !o.id) continue;
+    try {
+      const incomingTs = o.timestamp || Date.now();
+      const existing = checkTs.get(o.id);
+      if (existing && existing.timestamp >= incomingTs) continue;
+
+      insOrder.run(o.id, o.partnerName || '', o.warehouseId || '', o.type || 'outbound', incomingTs, 'synced', o.isDeleted || 0, o.isSettled || 0, o.remark || null, o.voidReason || null);
+      // 清除旧明细/费用，写新
+      db.prepare('DELETE FROM order_items WHERE orderId = ?').run(o.id);
+      db.prepare('DELETE FROM order_fees WHERE orderId = ?').run(o.id);
+      for (const item of (oe.items || [])) {
+        insItem.run(item.id, o.id, item.itemName || '', item.quantity || 0, item.unitPrice || 0, item.grossWeight || 0, item.tareWeight || 0, item.totalPieces || null, item.deliveryPerson || null, item.imagePath || null, item.sortOrder || 0);
+      }
+      for (const fee of (oe.fees || [])) {
+        insFee.run(fee.id, o.id, fee.feeName || '', fee.amount || 0, fee.remark || null, fee.sortOrder || 0);
+      }
+    } catch (e) {
+      console.error('[MQTT] Order 写入失败:', o.id, e.message);
+    }
+  }
+}
+
 // ── 长连接订阅者 ──
 
 function startSubscriber() {
@@ -155,8 +187,10 @@ function startSubscriber() {
       const data = JSON.parse(payload.toString('utf8'));
       const records = Array.isArray(data.records) ? data.records : [];
       const warehouses = Array.isArray(data.warehouses) ? data.warehouses : [];
+      const orders = Array.isArray(data.orders) ? data.orders : [];
 
       upsertRecordsAndWarehouses(records, warehouses);
+      upsertOrders(orders);
 
       connectionState.lastSyncAt = Date.now();
       connectionState.lastSyncCount = records.length;
@@ -210,9 +244,16 @@ function publishSnapshot() {
 
     const allWarehouses = db.prepare('SELECT * FROM warehouses ORDER BY name ASC').all();
     const allMovements = db.prepare('SELECT * FROM stock_movements ORDER BY timestamp DESC').all();
+    const allOrders = db.prepare('SELECT * FROM orders ORDER BY timestamp DESC').all();
+    const orderPayload = allOrders.map(o => ({
+      order: o,
+      items: db.prepare('SELECT * FROM order_items WHERE orderId = ?').all(o.id),
+      fees: db.prepare('SELECT * FROM order_fees WHERE orderId = ?').all(o.id),
+    }));
 
     const payload = JSON.stringify({
       records: allMovements.map(r => ({ ...r, isDeleted: r.isDeleted ? 1 : 0 })),
+      orders: orderPayload,
       warehouses: allWarehouses,
     });
 

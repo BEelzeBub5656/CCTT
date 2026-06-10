@@ -58,6 +58,11 @@ function initialize() {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_movements_warehouse ON stock_movements(warehouseId)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_movements_sync ON stock_movements(syncStatus)`);
 
+  // 新订单表（v9）
+  db.exec(`CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, partnerName TEXT NOT NULL, warehouseId TEXT NOT NULL, type TEXT NOT NULL, timestamp INTEGER NOT NULL, syncStatus TEXT NOT NULL DEFAULT 'pending', isDeleted INTEGER NOT NULL DEFAULT 0, isSettled INTEGER NOT NULL DEFAULT 0, remark TEXT, voidReason TEXT)`);
+  db.exec(`CREATE TABLE IF NOT EXISTS order_items (id TEXT PRIMARY KEY, orderId TEXT NOT NULL, itemName TEXT NOT NULL, quantity REAL NOT NULL, unitPrice REAL NOT NULL, grossWeight REAL DEFAULT 0, tareWeight REAL DEFAULT 0, totalPieces INTEGER, deliveryPerson TEXT, imagePath TEXT, sortOrder INTEGER DEFAULT 0)`);
+  db.exec(`CREATE TABLE IF NOT EXISTS order_fees (id TEXT PRIMARY KEY, orderId TEXT NOT NULL, feeName TEXT NOT NULL, amount REAL NOT NULL, remark TEXT, sortOrder INTEGER DEFAULT 0)`);
+
   // 兼容旧数据库：补齐缺失的列
   try { db.exec(`ALTER TABLE stock_movements ADD COLUMN imagePath TEXT`); } catch (_) {}
   try { db.exec(`ALTER TABLE stock_movements ADD COLUMN voidReason TEXT`); } catch (_) {}

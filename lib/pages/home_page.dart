@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../data/database_helper.dart';
+import '../models/order.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 import '../services/sync_service.dart';
 import 'add_record_page.dart';
 import 'edit_record_page.dart';
 import 'record_detail_page.dart';
+import 'add_order_page.dart';
+import 'order_detail_page.dart';
 /// 主页面
 ///
 /// 以 ListView 展示本地库存移动记录，支持按仓库筛选，并用不同颜色图标区分同步状态。
@@ -19,6 +22,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   List<StockMovement> _movements = [];
+  List<OrderDetail> _orders = [];
   List<Warehouse> _warehouses = [];
   bool _isLoading = true;
   int _unpushedCount = 0;
@@ -45,10 +49,18 @@ class _HomePageState extends State<HomePage> {
     try {
       final movements = await DatabaseHelper.instance.getAllMovements();
       final warehouses = await DatabaseHelper.instance.getAllWarehouses();
+      final allOrders = await DatabaseHelper.instance.getAllOrders();
+      final orderDetails = <OrderDetail>[];
+      for (final o in allOrders) {
+        final items = await DatabaseHelper.instance.getOrderItems(o.id);
+        final fees = await DatabaseHelper.instance.getOrderFees(o.id);
+        orderDetails.add(OrderDetail(order: o, items: items, fees: fees));
+      }
       if (mounted) {
         final unsynced = movements.where((m) => m.syncStatus != SyncStatus.synced).length;
         setState(() {
           _movements = movements;
+          _orders = orderDetails;
           _warehouses = warehouses;
           _unpushedCount = unsynced;
           _isLoading = false;
@@ -122,6 +134,27 @@ class _HomePageState extends State<HomePage> {
           m.partnerName, m.color, m.variety, m.deliveryPerson ?? '',
           _warehouseName(m.warehouseId),
           monthStr,
+        ].join(' ').toLowerCase();
+        return searchText.contains(kw);
+      }).toList();
+    }
+    return list;
+  }
+
+  List<OrderDetail> get _filteredOrders {
+    var list = _orders.where((o) => !o.order.isDeleted).toList();
+    if (_selectedWarehouseId != null) {
+      list = list.where((o) => o.order.warehouseId == _selectedWarehouseId).toList();
+    }
+    if (_searchKeyword.isNotEmpty) {
+      final kw = _searchKeyword.toLowerCase();
+      list = list.where((o) {
+        final time = DateTime.fromMillisecondsSinceEpoch(o.order.timestamp);
+        final monthStr = '${time.year}年${time.month}月 ${time.month}月';
+        final itemNames = o.items.map((i) => i.itemName).join(' ');
+        final searchText = [
+          o.order.partnerName, itemNames, o.order.remark ?? '',
+          _warehouseName(o.order.warehouseId), monthStr,
         ].join(' ').toLowerCase();
         return searchText.contains(kw);
       }).toList();
@@ -279,7 +312,15 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  /// 跳转到新建页面
+  /// 跳转到新建 Order 页面
+  Future<void> _navigateToAddOrder() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AddOrderPage()),
+    );
+    await _loadData();
+  }
+
+  /// 跳转到新建页面（旧 StockMovement 模式）
   Future<void> _navigateToAdd() async {
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const AddRecordPage()),
@@ -513,12 +554,15 @@ class _HomePageState extends State<HomePage> {
                 ? const Center(child: CircularProgressIndicator())
                 : RefreshIndicator(
                     onRefresh: _onRefresh,
-                    child: filtered.isEmpty
+                    child: filtered.isEmpty && _filteredOrders.isEmpty
                         ? _buildEmptyState()
                         : ListView.builder(
-                            itemCount: filtered.length,
+                            itemCount: filtered.length + _filteredOrders.length,
                             itemBuilder: (context, index) {
-                              return _buildMovementCard(filtered[index]);
+                              if (index < _filteredOrders.length) {
+                                return _buildOrderCard(_filteredOrders[index]);
+                              }
+                              return _buildMovementCard(filtered[index - _filteredOrders.length]);
                             },
                           ),
                   ),
@@ -539,7 +583,7 @@ class _HomePageState extends State<HomePage> {
             ),
             FloatingActionButton.extended(
               heroTag: 'add',
-              onPressed: _navigateToAdd,
+              onPressed: _navigateToAddOrder,
               icon: const Icon(Icons.add),
               label: const Text('新建'),
             ),
@@ -761,6 +805,57 @@ class _HomePageState extends State<HomePage> {
         );
       }
     }
+  }
+
+  /// 新建 Order 卡片
+  Widget _buildOrderCard(OrderDetail d) {
+    final o = d.order;
+    final isInbound = o.type == MovementType.inbound;
+    final isDeleted = o.isDeleted;
+    final displayTitle = d.items.isNotEmpty ? d.items.map((i) => i.itemName).toSet().join('、') : o.partnerName;
+    final dt = DateTime.fromMillisecondsSinceEpoch(o.timestamp);
+    final pf = (int n) => n.toString().padLeft(2, '0');
+    final ts = '${dt.year}-${pf(dt.month)}-${pf(dt.day)} ${pf(dt.hour)}:${pf(dt.minute)}';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: isDeleted ? Colors.grey.shade50 : null,
+      child: ListTile(
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OrderDetailPage(orderId: o.id))),
+        leading: CircleAvatar(
+          backgroundColor: o.syncStatus == SyncStatus.synced ? Colors.green.shade100 : Colors.orange.shade100,
+          child: Icon(o.syncStatus == SyncStatus.synced ? Icons.check_circle : Icons.sync,
+            color: o.syncStatus == SyncStatus.synced ? Colors.green.shade800 : Colors.orange.shade800)),
+        title: Row(children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: isInbound ? Colors.green.shade50 : o.type == MovementType.outbound ? Colors.red.shade50 : Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: isInbound ? Colors.green : o.type == MovementType.outbound ? Colors.red : Colors.orange)),
+            child: Text(isInbound ? '入库' : o.type == MovementType.outbound ? '出库' : '进货',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
+                color: isInbound ? Colors.green.shade800 : o.type == MovementType.outbound ? Colors.red.shade800 : Colors.orange.shade800))),
+          const SizedBox(width: 8),
+          Expanded(child: Text(displayTitle, overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontWeight: FontWeight.w600, decoration: isDeleted ? TextDecoration.lineThrough : null, color: isDeleted ? Colors.grey.shade500 : null))),
+          if (isDeleted) Container(margin: const EdgeInsets.only(left: 4), padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(border: Border.all(color: Colors.red, width: 1.5), borderRadius: BorderRadius.circular(4)),
+            child: const Text('已作废', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red))),
+        ]),
+        subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const SizedBox(height: 4),
+          Text('${_warehouseName(o.warehouseId)}  •  $ts${d.items.length > 1 ? "  •  ${d.items.length}项货物" : ""}',
+            style: TextStyle(fontSize: 12, color: isDeleted ? Colors.grey.shade400 : Colors.grey.shade700, decoration: isDeleted ? TextDecoration.lineThrough : null)),
+          Text('${o.partnerName}  |  ¥${d.totalAmount.toStringAsFixed(2)}',
+            style: TextStyle(fontSize: 12, color: isDeleted ? Colors.grey.shade400 : Colors.teal)),
+        ]),
+        trailing: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(color: (o.syncStatus == SyncStatus.synced ? Colors.green : Colors.orange).withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12), border: Border.all(color: o.syncStatus == SyncStatus.synced ? Colors.green : Colors.orange, width: 1.5)),
+          child: Text(o.syncStatus == SyncStatus.synced ? '已同步' : '未同步', style: TextStyle(color: o.syncStatus == SyncStatus.synced ? Colors.green : Colors.orange, fontSize: 12, fontWeight: FontWeight.bold))),
+      ),
+    );
   }
 }
 

@@ -1,6 +1,7 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../models/order.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 
@@ -10,11 +11,14 @@ import '../models/warehouse.dart';
 /// 支持多仓库库存管理，严格遵循 Offline-First 原则。
 class DatabaseHelper {
   static const String _databaseName = 'cctt_database.db';
-  static const int _databaseVersion = 8; // v8: 新增 isSettled 结清 + remark 备注字段
+  static const int _databaseVersion = 9; // v9: 新增 orders + order_items + order_fees 主单据架构
 
   // 表名
   static const String _warehousesTable = 'warehouses';
   static const String _movementsTable = 'stock_movements';
+  static const String _ordersTable = 'orders';
+  static const String _orderItemsTable = 'order_items';
+  static const String _orderFeesTable = 'order_fees';
 
   // ------------------- 单例模式 -------------------
   DatabaseHelper._privateConstructor();
@@ -105,11 +109,18 @@ class DatabaseHelper {
     }
 
     if (oldVersion < 8) {
-      // v7 → v8：新增 isSettled 结清标志 + remark 备注字段
       await db.execute(
           "ALTER TABLE $_movementsTable ADD COLUMN isSettled INTEGER NOT NULL DEFAULT 0");
       await db.execute(
           'ALTER TABLE $_movementsTable ADD COLUMN remark TEXT');
+    }
+
+    if (oldVersion < 9) {
+      await _createOrdersTable(db);
+      await _createOrderItemsTable(db);
+      await _createOrderFeesTable(db);
+      // 迁移旧数据：每条 stock_movement → 1 order + 1 order_item
+      await _migrateV9(db);
     }
   }
 
@@ -157,6 +168,222 @@ class DatabaseHelper {
     await db.execute('''
       CREATE INDEX idx_movements_sync ON $_movementsTable(syncStatus)
     ''');
+  }
+
+  /// 创建 orders 表（v9）
+  Future<void> _createOrdersTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_ordersTable (
+        id TEXT PRIMARY KEY NOT NULL,
+        partnerName TEXT NOT NULL,
+        warehouseId TEXT NOT NULL,
+        type TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        syncStatus TEXT NOT NULL DEFAULT 'pending',
+        isDeleted INTEGER NOT NULL DEFAULT 0,
+        isSettled INTEGER NOT NULL DEFAULT 0,
+        remark TEXT,
+        voidReason TEXT,
+        FOREIGN KEY (warehouseId) REFERENCES $_warehousesTable(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_orders_wh ON $_ordersTable(warehouseId)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_orders_sync ON $_ordersTable(syncStatus)');
+  }
+
+  /// 创建 order_items 表（v9）
+  Future<void> _createOrderItemsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_orderItemsTable (
+        id TEXT PRIMARY KEY NOT NULL,
+        orderId TEXT NOT NULL,
+        itemName TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unitPrice REAL NOT NULL,
+        grossWeight REAL DEFAULT 0,
+        tareWeight REAL DEFAULT 0,
+        totalPieces INTEGER,
+        deliveryPerson TEXT,
+        imagePath TEXT,
+        sortOrder INTEGER DEFAULT 0,
+        FOREIGN KEY (orderId) REFERENCES $_ordersTable(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_items_order ON $_orderItemsTable(orderId)');
+  }
+
+  /// 创建 order_fees 表（v9）
+  Future<void> _createOrderFeesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_orderFeesTable (
+        id TEXT PRIMARY KEY NOT NULL,
+        orderId TEXT NOT NULL,
+        feeName TEXT NOT NULL,
+        amount REAL NOT NULL,
+        remark TEXT,
+        sortOrder INTEGER DEFAULT 0,
+        FOREIGN KEY (orderId) REFERENCES $_ordersTable(id) ON DELETE CASCADE
+      )
+    ''');
+  }
+
+  /// v9 迁移：旧 stock_movements → orders + order_items
+  Future<void> _migrateV9(Database db) async {
+    final rows = await db.query(_movementsTable);
+    if (rows.isEmpty) return;
+
+    for (final m in rows) {
+      // 检查是否已迁移
+      final existing = await db.query(_ordersTable, where: 'id = ?', whereArgs: [m['id']], limit: 1);
+      if (existing.isNotEmpty) continue;
+
+      final itemName = [
+        (m['color'] as String?) ?? '',
+        (m['variety'] as String?) ?? '',
+      ].where((s) => s.isNotEmpty).join(' ').trim();
+      final fallback = (m['partnerName'] as String?) ?? '';
+
+      await db.insert(_ordersTable, {
+        'id': m['id'],
+        'partnerName': m['partnerName'],
+        'warehouseId': m['warehouseId'],
+        'type': m['type'],
+        'timestamp': m['timestamp'],
+        'syncStatus': m['syncStatus'],
+        'isDeleted': m['isDeleted'],
+        'isSettled': m['isSettled'],
+        'remark': m['remark'],
+        'voidReason': m['voidReason'],
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      await db.insert(_orderItemsTable, {
+        'id': '${m['id']}_item',
+        'orderId': m['id'],
+        'itemName': itemName.isNotEmpty ? itemName : fallback,
+        'quantity': m['quantity'],
+        'unitPrice': m['unitPrice'],
+        'grossWeight': m['grossWeight'],
+        'tareWeight': m['tareWeight'],
+        'totalPieces': m['totalPieces'],
+        'deliveryPerson': m['deliveryPerson'],
+        'imagePath': m['imagePath'],
+        'sortOrder': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+  }
+
+  // =================== Order CRUD ===================
+
+  Future<int> insertOrder(Order order) async {
+    final db = await database;
+    return db.insert(_ordersTable, order.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<int> updateOrder(Order order) async {
+    final db = await database;
+    return db.update(_ordersTable, order.toJson(), where: 'id = ?', whereArgs: [order.id]);
+  }
+
+  Future<Order?> getOrderById(String id) async {
+    final db = await database;
+    final maps = await db.query(_ordersTable, where: 'id = ?', whereArgs: [id], limit: 1);
+    if (maps.isEmpty) return null;
+    return Order.fromJson(maps.first);
+  }
+
+  Future<List<Order>> getAllOrders() async {
+    final db = await database;
+    final maps = await db.query(_ordersTable, orderBy: 'timestamp DESC');
+    return maps.map((m) => Order.fromJson(m)).toList();
+  }
+
+  Future<List<Order>> getOrdersByWarehouse(String warehouseId) async {
+    final db = await database;
+    final maps = await db.query(_ordersTable, where: 'warehouseId = ?', whereArgs: [warehouseId], orderBy: 'timestamp DESC');
+    return maps.map((m) => Order.fromJson(m)).toList();
+  }
+
+  Future<List<Order>> getPendingOrders() async {
+    final db = await database;
+    final maps = await db.query(_ordersTable,
+      where: 'syncStatus = ? OR syncStatus = ?',
+      whereArgs: [SyncStatus.pending.name, SyncStatus.syncing.name],
+      orderBy: 'timestamp DESC');
+    return maps.map((m) => Order.fromJson(m)).toList();
+  }
+
+  Future<int> updateOrderSyncStatus(String id, SyncStatus status) async {
+    final db = await database;
+    return db.update(_ordersTable, {'syncStatus': status.name}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> updateOrderSyncStatusBatch(List<String> ids, SyncStatus status) async {
+    final db = await database;
+    final batch = db.batch();
+    for (final id in ids) {
+      batch.update(_ordersTable, {'syncStatus': status.name}, where: 'id = ?', whereArgs: [id]);
+    }
+    await batch.commit(noResult: false);
+  }
+
+  Future<int> deleteOrder(String id) async {
+    final db = await database;
+    return db.delete(_ordersTable, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // =================== OrderItem CRUD ===================
+
+  Future<int> insertOrderItem(OrderItem item) async {
+    final db = await database;
+    return db.insert(_orderItemsTable, item.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<int> updateOrderItem(OrderItem item) async {
+    final db = await database;
+    return db.update(_orderItemsTable, item.toJson(), where: 'id = ?', whereArgs: [item.id]);
+  }
+
+  Future<int> deleteOrderItem(String id) async {
+    final db = await database;
+    return db.delete(_orderItemsTable, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<OrderItem>> getOrderItems(String orderId) async {
+    final db = await database;
+    final maps = await db.query(_orderItemsTable, where: 'orderId = ?', whereArgs: [orderId], orderBy: 'sortOrder ASC');
+    return maps.map((m) => OrderItem.fromJson(m)).toList();
+  }
+
+  // =================== OrderFee CRUD ===================
+
+  Future<int> insertOrderFee(OrderFee fee) async {
+    final db = await database;
+    return db.insert(_orderFeesTable, fee.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<int> updateOrderFee(OrderFee fee) async {
+    final db = await database;
+    return db.update(_orderFeesTable, fee.toJson(), where: 'id = ?', whereArgs: [fee.id]);
+  }
+
+  Future<int> deleteOrderFee(String id) async {
+    final db = await database;
+    return db.delete(_orderFeesTable, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<OrderFee>> getOrderFees(String orderId) async {
+    final db = await database;
+    final maps = await db.query(_orderFeesTable, where: 'orderId = ?', whereArgs: [orderId], orderBy: 'sortOrder ASC');
+    return maps.map((m) => OrderFee.fromJson(m)).toList();
+  }
+
+  // =================== OrderDetail 聚合视图 ===================
+
+  Future<OrderDetail> getOrderDetail(String id) async {
+    final order = await getOrderById(id);
+    final items = order != null ? await getOrderItems(id) : <OrderItem>[];
+    final fees = order != null ? await getOrderFees(id) : <OrderFee>[];
+    return OrderDetail(order: order!, items: items, fees: fees);
   }
 
   // =================== Warehouses CRUD ===================
