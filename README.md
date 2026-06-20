@@ -1,130 +1,176 @@
 # CCTT 库存管理
 
-离线优先的库存管理 App，专为**毛纺厂出入库场景**设计。支持本地 SQLite 持久化、拍照/相册留档、极速连录重量、MQTT over TLS 同步到 PC 后端。
+离线优先的个人库存管理 App + Web 管理后台，专为**毛纺厂出入库场景**设计。支持主单据(Order)挂多条货物明细(OrderItem)和额外费用(OrderFee)，Excel 数据格式原生匹配。
 
-## 版本历史
+## 版本
 
 | 版本 | 同步协议 | 说明 |
 |------|----------|------|
-| [**v0.7**](https://github.com/BEelzeBub5656/CCTT/releases/tag/v0.7) | **MQTT over TLS** | EMQX Broker，主题 `cctt/sync/inbound`，QoS 1 |
-| [v0.5](https://github.com/BEelzeBub5656/CCTT/releases/tag/v0.5) | Dio HTTP POST | 直连 `$baseUrl/api/sync`，已归档 |
+| **v2.0** | MQTT over TLS (Master-Slave) | 主单据+明细+费用架构，Web 管理后台，时间戳冲突解决 |
+| [v0.7](https://github.com/BEelzeBub5656/CCTT/releases/tag/v0.7) | MQTT over TLS | EMQX Broker，单表同步 |
+| [v0.5](https://github.com/BEelzeBub5656/CCTT/releases/tag/v0.5) | Dio HTTP POST | 直连同步，已归档 |
 
 ## 核心功能
 
 | 模块 | 说明 |
 |------|------|
-| **出入库录入** | 颜色/品种/毛重/扣皮/净重/件数/送货人，毛重-扣皮联动自动算净重 |
+| **主单据录入** | 客户/仓库/类型(入库/出库/进货)/日期/备注/结清，同客户+同日期+同类型自动合并 |
+| **货物明细** | 多条明细挂一个主单据，净重/单价/毛重/扣皮/件数/送货人/拍照 |
+| **额外费用** | 名称+金额+备注，多条费用挂主单据，自动汇总 |
 | **极速连录** | 自定义数字键盘 BottomSheet，连续录入重量自动汇总回填 |
-| **单据详情** | 卡片分组展示全部字段，含毛重-扣皮净重校验 |
+| **单据详情** | 凭证风格分组展示全部字段，货物明细可点击查看详情，含毛重-扣皮校验 |
+| **结清管理** | 未结清→已结清二次确认，已结清不可逆 |
+| **照片留档** | camera + image_picker，照片绑定到每条明细，详情页全屏缩放查看 |
 | **同步状态** | 四色标签：🟠未同步 / 🔵正在同步 / 🟢已同步 / 🔴同步失败 |
-| **MQTT 同步** | EMQX 公有云 Broker，8883/TLS，自动重试非 synced 记录 |
-| **照片留档** | camera + image_picker，将票据照片保存到本地并绑定到单据/明细 |
+| **Web 管理后台** | Node.js + Express + better-sqlite3，图形化 CRUD，仪表盘统计 |
+| **MQTT 同步** | EMQX 公有云 Broker，8883/TLS，Master(Web)发布 retain 快照，Slave(手机)先推后拉 |
+| **作废管理** | 软删除 + 5个预设原因 + 自定义输入，垃圾桶页面集中查看 |
 
 ## 技术栈
 
-- **Flutter 3.x** / Dart 3.11
-- **SQLite** (`sqflite`) 本地持久化，v4 平滑迁移
-- **MQTT** (`mqtt_client`) over TLS，QoS 1
-- **shared_preferences** 本地配置持久化
+| 层 | 技术 |
+|----|------|
+| **手机端** | Flutter 3.x / Dart 3.x |
+| **本地数据库** | SQLite (`sqflite`) v9，5 张表 |
+| **同步** | MQTT (`mqtt_client`) over TLS, QoS 1, Master-Slave 架构 |
+| **Web 后端** | Node.js + Express, better-sqlite3, MQTT.js |
+| **Web 前端** | Vanilla JS SPA, Hash Router, CSS 变量工业精致风 |
+| **配置** | shared_preferences 本地持久化 |
+
+## 数据模型 (v2.0)
+
+```
+Order (主单据)
+├── OrderItem × N (货物明细)
+└── OrderFee × N  (额外费用)
+```
+
+- **Order**: partnerName, warehouseId, type(inbound/outbound/supply), timestamp, isSettled, remark
+- **OrderItem**: itemName(颜色+品种合并), quantity(净重kg), unitPrice(元/吨), grossWeight, tareWeight, deliveryPerson, imagePath
+- **OrderFee**: feeName, amount, remark
 
 ## 数据库版本
 
 | 版本 | 变更 |
 |------|------|
-| v4 | 拆分 `productName` → `color` + `variety`，新增 `grossWeight`/`tareWeight`/`totalPieces`/`deliveryPerson` |
+| v9 | **v2.0**: 新增 orders / order_items / order_fees 表，旧数据自动迁移 |
+| v8 | 新增 isSettled / remark 字段 |
+| v7 | 新增 voidReason 字段 |
+| v6 | 新增 imagePath 照片字段 |
+| v5 | 新增 isDeleted 软删除 |
+| v4 | 拆分 productName → color + variety |
 
 ## 同步机制
 
 ```
-pending ──点击同步──► syncing ──MQTT Publish──► synced（绿色）
-                          │
-                          └──异常──► failed（红色）
+手机 (Slave)                        Web (Master)
+───────────                        ────────────
+pending ──上传──► cctt/sync/inbound ──► 入库 + 自动发布 retain 快照
+                                         │
+           ◄── cctt/sync/snapshot ◄──────┘
+           ◄── cctt/sync/ack ◄─────────── (确认收到)
+
+冲突解决: 时间戳优先 (>=), pending/syncing 记录保护, 作废终态保护
 ```
 
-- 只要 `syncStatus != synced`，统统抓取重试，防止中断卡在 `syncing`
-- `toJson()` 转换在 try-catch 内部执行，转换崩溃也会把状态复位为 `failed`
-- **异常安全**: `client.disconnect()` 在 `finally` 中无条件调用，任何异常（断网、超时、broker 不可用）都会正确释放连接
-- 同步过程不阻断 UI，SnackBar 提示 + 列表实时刷新
-
-## MQTT 消息格式
-
-### Broker 配置（v0.7）
-
-| 参数 | 值 |
-|------|-----|
-| Broker | `kf33d077.ala.cn-hangzhou.emqxsl.cn` |
-| Port | `8883` |
-| Protocol | MQTT v3.1.1 over TLS |
-| Topic | `cctt/sync/inbound` |
-| QoS | `1` (At least once) |
-
-### 消息 Payload
+## MQTT 消息格式 (v2.0)
 
 ```json
 {
-  "records": [
-    {
-      "id": "uuid-string",
-      "timestamp": 1713331200000,
-      "partnerName": "张三纺织",
-      "warehouseId": "warehouse-uuid",
-      "type": "outbound",
-      "quantity": 1523.50,
-      "unitPrice": 8500.00,
-      "syncStatus": "pending",
-      "color": "白色",
-      "variety": "羊毛",
-      "totalPieces": 12,
-      "grossWeight": 1550.00,
-      "tareWeight": 26.50,
-      "deliveryPerson": "李四"
-    }
-  ],
-  "warehouses": [
-    { "id": "wh-uuid", "name": "主仓库" }
-  ]
+  "records": [{ "id": "…", "warehouseId": "…", "partnerName": "…", … }],
+  "warehouses": [{ "id": "…", "name": "…" }],
+  "orders": [{
+    "order": { "id": "…", "partnerName": "…", "type": "outbound", … },
+    "items": [{ "id": "…", "itemName": "白 羊毛", "quantity": 1523.5, … }],
+    "fees": [{ "id": "…", "feeName": "运费", "amount": 200, … }]
+  }]
 }
 ```
 
-> PC 后端订阅 `cctt/sync/inbound` 即可接收数据。同步时打包**全量仓库列表**，确保快照恢复时不会丢失未关联待同步记录的仓库。
+## Web 管理后台
+
+```bash
+cd admin
+npm install
+node server/index.js
+# → http://localhost:3456
+```
+
+| 页面 | 路由 |
+|------|------|
+| 仪表盘 | `#/dashboard` |
+| 单据列表 | `#/orders` |
+| 单据详情 | `#/orders/:id` |
+| 出入库记录 | `#/movements` |
+| 仓库管理 | `#/warehouses` |
+| 同步设置 | `#/settings` |
 
 ## 构建
 
 ```bash
+# Debug
 flutter build apk --debug
+
+# Release (分架构)
+flutter build apk --release --split-per-abi
 ```
 
-产物：`build/app/outputs/flutter-apk/app-debug.apk`
+产物：
+- `app-arm64-v8a-release.apk` — 大多数现代手机
+- `app-armeabi-v7a-release.apk` — 旧 32 位设备
+- `app-x86_64-release.apk` — 模拟器
+
+GitHub Actions 自动构建 → [Actions](https://github.com/BEelzeBub5656/CCTT/actions)
 
 ## 项目结构
 
 ```
 lib/
 ├── data/
-│   └── database_helper.dart      # SQLite 单例 + v4 迁移
+│   └── database_helper.dart          # SQLite 单例，v1→v9 迁移
 ├── models/
-│   ├── stock_movement.dart       # 库存移动记录（v4 字段）
-│   └── warehouse.dart            # 仓库模型
+│   ├── order.dart                    # Order + OrderItem + OrderFee + OrderDetail
+│   ├── stock_movement.dart           # 旧版库存移动记录
+│   └── warehouse.dart                # 仓库模型
 ├── pages/
-│   ├── home_page.dart            # 主列表 + 同步 + 筛选
-│   ├── add_record_page.dart      # 新建单据（毛厂出库单）
-│   └── record_detail_page.dart   # 单据详情
+│   ├── home_page.dart                # 主列表（Order + 旧记录共存）
+│   ├── add_order_page.dart           # 新建主单据
+│   ├── add_order_item_page.dart      # 编辑明细 + 费用
+│   ├── order_detail_page.dart        # 单据详情（凭证风格）
+│   ├── add_record_page.dart          # 旧版新建记录
+│   ├── record_detail_page.dart       # 旧版记录详情
+│   └── edit_record_page.dart         # 旧版编辑记录
 ├── services/
-│   ├── sync_service.dart         # MQTT 同步引擎
-│   └── settings_service.dart     # SharedPreferences 封装
+│   └── sync_service.dart             # MQTT 同步引擎
 └── main.dart
+
+admin/
+├── server/
+│   ├── index.js                      # Express 入口 (3456)
+│   ├── db.js                         # better-sqlite3 Schema
+│   ├── mqtt.js                       # MQTT 订阅 + 快照
+│   └── routes/
+│       ├── orders.js                 # 单据 CRUD API
+│       ├── movements.js              # 记录 CRUD API
+│       ├── warehouses.js             # 仓库 CRUD API
+│       ├── stats.js                  # 仪表盘统计
+│       └── sync.js                   # 同步状态
+└── public/
+    ├── index.html                    # SPA 入口
+    ├── css/app.css                   # 工业精致风样式
+    └── js/
+        ├── api.js / router.js / state.js
+        └── pages/
+            ├── dashboard.js
+            ├── orders.js             # 单据列表 + 详情
+            ├── movements.js          # 记录列表 + 表单 + 详情
+            ├── warehouses.js
+            └── settings.js
 ```
 
 ## 开发记录
 
-| 提交 | 说明 |
-|------|------|
-| `291899c` | **v0.7+**: 快照同步、设置中心、长按编辑、仓库管理 |
-| `3c99050` | **v0.7**: Dio → MQTT over TLS 迁移 |
-| `f1412b1` | **v0.5**: 统一四色同步状态标签，修复 syncing 卡死问题 |
-| `d96c945` | 全面 UI 重构：颜色/品种拆分、毛重扣皮联动 |
-| `c22773a` | 极速连录 BottomSheet |
-| `9a8105d` | 单据详情页 |
+详见 [CCTT_开发记录.md](CCTT_开发记录.md)
 
 ---
 
