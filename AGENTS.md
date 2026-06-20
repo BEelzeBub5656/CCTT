@@ -65,7 +65,7 @@ lib/
 
 ## 已知问题
 
-- **真机 OCR 闪退**: PHB110（Android 16）点击拍照/相册瞬间崩溃。已尝试独立 StatefulWidget 生命周期、`ResolutionPreset.medium`、权限显式申请、全局 try-catch，均无效。根因待通过 `adb logcat` 排查 native crash。
+- **OCR 暂不启用**: 已移除本地 OCR 方向，拍照/相册功能定位为票据照片留档。
 
 ## 已修复问题
 

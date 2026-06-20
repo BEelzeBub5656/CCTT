@@ -105,7 +105,8 @@ class _AddRecordPageState extends State<AddRecordPage> {
 
     try {
       final grossWeight = double.parse(_grossWeightController.text.trim());
-      final tareWeight = double.tryParse(_tareWeightController.text.trim()) ?? 0;
+      final tareWeight =
+          double.tryParse(_tareWeightController.text.trim()) ?? 0;
       final netWeight = grossWeight - tareWeight;
 
       if (netWeight <= 0) {
@@ -145,8 +146,12 @@ class _AddRecordPageState extends State<AddRecordPage> {
       final record = StockMovement(
         id: recordId,
         timestamp: DateTime(
-          _selectedDate.year, _selectedDate.month, _selectedDate.day,
-          DateTime.now().hour, DateTime.now().minute, DateTime.now().second,
+          _selectedDate.year,
+          _selectedDate.month,
+          _selectedDate.day,
+          DateTime.now().hour,
+          DateTime.now().minute,
+          DateTime.now().second,
         ).millisecondsSinceEpoch,
         partnerName: _partnerController.text.trim(),
         warehouseId: _selectedWarehouseId!,
@@ -164,7 +169,9 @@ class _AddRecordPageState extends State<AddRecordPage> {
             : _deliveryPersonController.text.trim(),
         imagePath: finalImagePath,
         isSettled: _isSettled,
-        remark: _remarkController.text.trim().isEmpty ? null : _remarkController.text.trim(),
+        remark: _remarkController.text.trim().isEmpty
+            ? null
+            : _remarkController.text.trim(),
       );
 
       await DatabaseHelper.instance.insertMovement(record);
@@ -335,7 +342,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
                   _buildTypeCard(),
                   const SizedBox(height: 16),
 
-                  // ───── 识别方式 ─────
+                  // ───── 照片留档 ─────
                   Row(
                     children: [
                       Expanded(
@@ -454,8 +461,8 @@ class _AddRecordPageState extends State<AddRecordPage> {
                               style: TextButton.styleFrom(
                                 foregroundColor:
                                     Theme.of(context).colorScheme.primary,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8),
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
                               ),
                             ),
                           ),
@@ -483,8 +490,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
                           decoration: const InputDecoration(
                             labelText: '扣皮(kg)',
                             hintText: '去皮',
-                            prefixIcon:
-                                Icon(Icons.remove_circle_outline),
+                            prefixIcon: Icon(Icons.remove_circle_outline),
                             border: OutlineInputBorder(),
                           ),
                           keyboardType: const TextInputType.numberWithOptions(
@@ -516,8 +522,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
                           decoration: const InputDecoration(
                             labelText: '总件数',
                             hintText: '如：5',
-                            prefixIcon:
-                                Icon(Icons.inventory_2_outlined),
+                            prefixIcon: Icon(Icons.inventory_2_outlined),
                             border: OutlineInputBorder(),
                           ),
                           keyboardType: TextInputType.number,
@@ -668,25 +673,34 @@ class _AddRecordPageState extends State<AddRecordPage> {
 
                   // ───── 是否结清 ─────
                   Row(children: [
-                    const Icon(Icons.account_balance_wallet, color: Colors.teal, size: 20),
+                    const Icon(Icons.account_balance_wallet,
+                        color: Colors.teal, size: 20),
                     const SizedBox(width: 8),
-                    const Text('是否结清', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    const Text('是否结清',
+                        style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.bold)),
                     const Spacer(),
                     ChoiceChip(
-                      label: Text('未结清', style: TextStyle(
-                        color: _isSettled ? null : Colors.orange.shade800,
-                        fontWeight: _isSettled ? FontWeight.normal : FontWeight.bold,
-                      )),
+                      label: Text('未结清',
+                          style: TextStyle(
+                            color: _isSettled ? null : Colors.orange.shade800,
+                            fontWeight: _isSettled
+                                ? FontWeight.normal
+                                : FontWeight.bold,
+                          )),
                       selected: !_isSettled,
                       selectedColor: Colors.orange.shade100,
                       onSelected: (_) => setState(() => _isSettled = false),
                     ),
                     const SizedBox(width: 8),
                     ChoiceChip(
-                      label: Text('已结清', style: TextStyle(
-                        color: _isSettled ? Colors.green.shade800 : null,
-                        fontWeight: _isSettled ? FontWeight.bold : FontWeight.normal,
-                      )),
+                      label: Text('已结清',
+                          style: TextStyle(
+                            color: _isSettled ? Colors.green.shade800 : null,
+                            fontWeight: _isSettled
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          )),
                       selected: _isSettled,
                       selectedColor: Colors.green.shade100,
                       onSelected: (_) async {
@@ -697,12 +711,18 @@ class _AddRecordPageState extends State<AddRecordPage> {
                             title: const Text('确认结清'),
                             content: const Text('确认该笔款项已结清？\n此信息将同步到云端。'),
                             actions: [
-                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确认')),
+                              TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('取消')),
+                              TextButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text('确认')),
                             ],
                           ),
                         );
-                        if (ok == true && mounted) setState(() => _isSettled = true);
+                        if (ok == true && mounted) {
+                          setState(() => _isSettled = true);
+                        }
                       },
                     ),
                   ]),
@@ -733,7 +753,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
             ),
           ),
 
-          // 识别中遮罩
+          // 照片保存中遮罩
           if (_isScanning)
             Container(
               color: Colors.black54,
@@ -744,7 +764,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
                     CircularProgressIndicator(color: Colors.white),
                     SizedBox(height: 16),
                     Text(
-                      '正在识别发票…',
+                      '正在保存照片…',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,
@@ -809,7 +829,7 @@ class _AddRecordPageState extends State<AddRecordPage> {
               )
             else
               DropdownButtonFormField<String>(
-                initialValue: _selectedWarehouseId,
+                value: _selectedWarehouseId,
                 decoration: const InputDecoration(
                   labelText: '选择仓库',
                   border: OutlineInputBorder(),
@@ -847,7 +867,11 @@ class _AddRecordPageState extends State<AddRecordPage> {
         child: Row(children: [
           const Icon(Icons.calendar_today, color: Colors.teal),
           const SizedBox(width: 8),
-          const Text('单据日期', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.teal)),
+          const Text('单据日期',
+              style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.teal)),
           const Spacer(),
           TextButton.icon(
             icon: const Icon(Icons.edit_calendar, size: 18),
@@ -878,18 +902,26 @@ class _AddRecordPageState extends State<AddRecordPage> {
   Widget _buildTypeCard() {
     Color typeColor(MovementType t) {
       switch (t) {
-        case MovementType.inbound:  return Colors.green;
-        case MovementType.outbound: return Colors.red;
-        case MovementType.supply:   return Colors.orange;
+        case MovementType.inbound:
+          return Colors.green;
+        case MovementType.outbound:
+          return Colors.red;
+        case MovementType.supply:
+          return Colors.orange;
       }
     }
+
     String typeLabel(MovementType t) {
       switch (t) {
-        case MovementType.inbound:  return '入库';
-        case MovementType.outbound: return '出库';
-        case MovementType.supply:   return '进货';
+        case MovementType.inbound:
+          return '入库';
+        case MovementType.outbound:
+          return '出库';
+        case MovementType.supply:
+          return '进货';
       }
     }
+
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -897,18 +929,19 @@ class _AddRecordPageState extends State<AddRecordPage> {
         child: Row(children: [
           Icon(Icons.swap_horiz, color: Theme.of(context).colorScheme.primary),
           const SizedBox(width: 8),
-          const Text('操作类型', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+          const Text('操作类型',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
           const Spacer(),
           ...MovementType.values.map((t) => Padding(
-            padding: const EdgeInsets.only(left: 4),
-            child: ChoiceChip(
-              label: Text(typeLabel(t), style: TextStyle(fontSize: 12)),
-              visualDensity: VisualDensity.compact,
-              selected: _selectedType == t,
-              selectedColor: typeColor(t),
-              onSelected: (_) => setState(() => _selectedType = t),
-            ),
-          )),
+                padding: const EdgeInsets.only(left: 4),
+                child: ChoiceChip(
+                  label: Text(typeLabel(t), style: TextStyle(fontSize: 12)),
+                  visualDensity: VisualDensity.compact,
+                  selected: _selectedType == t,
+                  selectedColor: typeColor(t),
+                  onSelected: (_) => setState(() => _selectedType = t),
+                ),
+              )),
         ]),
       ),
     );
@@ -995,8 +1028,7 @@ class _CameraPreviewDialogState extends State<_CameraPreviewDialog> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.error_outline,
-                      color: Colors.red, size: 48),
+                  const Icon(Icons.error_outline, color: Colors.red, size: 48),
                   const SizedBox(height: 12),
                   Text(
                     '相机初始化失败\n$_error',
@@ -1010,17 +1042,14 @@ class _CameraPreviewDialogState extends State<_CameraPreviewDialog> {
             CameraPreview(_controller!)
           else
             const Center(child: CircularProgressIndicator()),
-
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
             left: 16,
             child: IconButton(
-              icon: const Icon(Icons.close,
-                  color: Colors.white, size: 28),
+              icon: const Icon(Icons.close, color: Colors.white, size: 28),
               onPressed: () => Navigator.of(context).pop(),
             ),
           ),
-
           if (_isReady)
             Positioned(
               bottom: 40,
@@ -1030,8 +1059,8 @@ class _CameraPreviewDialogState extends State<_CameraPreviewDialog> {
                 child: FloatingActionButton.large(
                   backgroundColor: Colors.white,
                   onPressed: _takePicture,
-                  child: const Icon(Icons.camera,
-                      color: Colors.black, size: 36),
+                  child:
+                      const Icon(Icons.camera, color: Colors.black, size: 36),
                 ),
               ),
             ),
@@ -1058,16 +1087,14 @@ class _RapidEntryBottomSheet extends StatefulWidget {
   const _RapidEntryBottomSheet();
 
   @override
-  State<_RapidEntryBottomSheet> createState() =>
-      _RapidEntryBottomSheetState();
+  State<_RapidEntryBottomSheet> createState() => _RapidEntryBottomSheetState();
 }
 
 class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
   final List<double> _weights = [];
   String _input = '';
 
-  double get _totalWeight =>
-      _weights.fold(0.0, (sum, w) => sum + w);
+  double get _totalWeight => _weights.fold(0.0, (sum, w) => sum + w);
 
   void _onKeyPressed(String key) {
     setState(() {
@@ -1152,8 +1179,7 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
               ),
             ),
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
                   const Icon(Icons.speed, color: Colors.teal),
@@ -1177,8 +1203,7 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
             ),
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.teal.shade50,
                 borderRadius: BorderRadius.circular(12),
@@ -1212,13 +1237,15 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                   ? Center(
                       child: Text(
                         '点击下方数字键盘录入毛重',
-                        style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+                        style: TextStyle(
+                            fontSize: 14, color: Colors.grey.shade500),
                       ),
                     )
                   : Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: GridView.builder(
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 3,
                           mainAxisSpacing: 8,
                           crossAxisSpacing: 8,
@@ -1233,14 +1260,17 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                               backgroundColor: Colors.teal.shade100,
                               radius: 10,
                               child: Text('$num',
-                                style: TextStyle(fontSize: 10, color: Colors.teal.shade800)),
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.teal.shade800)),
                             ),
                             label: Text(weight.toStringAsFixed(2),
-                              style: const TextStyle(fontSize: 13)),
+                                style: const TextStyle(fontSize: 13)),
                             deleteIcon: const Icon(Icons.close, size: 16),
                             onDeleted: () => _onDeleteItem(index),
                             backgroundColor: Colors.grey.shade100,
-                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
                             padding: EdgeInsets.zero,
                           );
                         },
@@ -1248,10 +1278,8 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                     ),
             ),
             Container(
-              margin: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 8),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 12),
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(12),
@@ -1259,19 +1287,20 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('当前输入', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                  const Text('当前输入',
+                      style: TextStyle(fontSize: 14, color: Colors.grey)),
                   Expanded(
                     child: Text(
                       _input.isEmpty ? '—' : '$_input kg',
                       textAlign: TextAlign.left,
                       style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.primary,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
               ),
             ),
             Expanded(
@@ -1308,21 +1337,17 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.orange,
                                 foregroundColor: Colors.white,
-                                minimumSize:
-                                    const Size.fromHeight(0),
+                                minimumSize: const Size.fromHeight(0),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
                               child: const Column(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.center,
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.add, size: 28),
                                   SizedBox(height: 4),
-                                  Text('下一笔',
-                                      style: TextStyle(fontSize: 14)),
+                                  Text('下一笔', style: TextStyle(fontSize: 14)),
                                 ],
                               ),
                             ),
@@ -1333,21 +1358,17 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
                               onPressed: _onDone,
                               style: FilledButton.styleFrom(
                                 backgroundColor: Colors.teal,
-                                minimumSize:
-                                    const Size.fromHeight(0),
+                                minimumSize: const Size.fromHeight(0),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
                               child: const Column(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.center,
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.check, size: 28),
                                   SizedBox(height: 4),
-                                  Text('完成',
-                                      style: TextStyle(fontSize: 14)),
+                                  Text('完成', style: TextStyle(fontSize: 14)),
                                 ],
                               ),
                             ),
@@ -1379,9 +1400,7 @@ class _RapidEntryBottomSheetState extends State<_RapidEntryBottomSheet> {
             style: TextStyle(
               fontSize: label == '⌫' ? 18 : 22,
               fontWeight: FontWeight.w500,
-              color: label == '⌫'
-                  ? Colors.red.shade700
-                  : Colors.black87,
+              color: label == '⌫' ? Colors.red.shade700 : Colors.black87,
             ),
           ),
         ),

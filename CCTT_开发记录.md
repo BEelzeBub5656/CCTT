@@ -1,6 +1,7 @@
 # CCTT 项目开发记录文档
 
 文档生成日期：2026-06-08（v2.0 主单据架构）
+最后更新：2026-06-14（自定义日期修复 + 详情页 UI 重构）
 项目名称：CCTT（离线优先个人库存管理 App + Web 管理后台）
 技术栈：Flutter + Dart + SQLite + MQTT + Node.js + Express + better-sqlite3
 最新数据库版本：v9（新增 orders + order_items + order_fees 主单据架构）
@@ -753,3 +754,21 @@ at TextRecognizer.handleDetection()
 
 **UI 修复：**
 - `home_page.dart` — Order 卡片品类去重显示（`toSet()`）
+
+**结清确认 + 货物明细弹窗（2026-06-08）：**
+- `order_detail_page.dart` — 新增 `_showItemDetail(OrderItem)` 弹窗（显示净重、单价、金额、毛重、扣皮、件数、送货人全部字段）；新增 `_toggleSettled()` 结清二次确认（已结清不可逆）；头部卡片新增结清状态徽章
+- `add_order_page.dart` — 新建时结清状态加二次确认对话框
+
+**自定义日期 Bug 修复（2026-06-14）：**
+- `add_order_page.dart` — `_save()` 中 `timestamp: now > ts ? now : ts` 改为 `timestamp: ts`，不再用当前时间覆盖用户选择的日期
+- `add_order_item_page.dart` — `_saveOrder()` 中 `now > widget.order.timestamp ? now : widget.order.timestamp + 1` 改为 `widget.order.timestamp + 1`，保留用户原始日期
+
+**Order 详情页 UI 重构（2026-06-14）：**
+- `order_detail_page.dart` — 整体重写为旧版 RecordDetailPage 凭证风格：
+  - 引入 `intl` DateFormat 格式化时间
+  - `_buildSectionTitle` / `_buildInfoCard` / `_buildInfoRow` 统一布局组件（与旧版完全一致）
+  - 头部概览卡片（类型徽章 + 总金额 36px）
+  - 留档照片卡片（全屏查看 + 双指缩放）
+  - 基本信息 → 货物明细 → 额外费用 → 金额明细 分组展示
+  - 货物明细改为行内紧凑布局（序号圆圈 + 信息区 + 金额）
+  - `_buildSyncStatusBadge` 同步状态标签（与旧版相同）

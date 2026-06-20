@@ -38,13 +38,6 @@ function upsertRecordsAndWarehouses(records, warehouses) {
   // 仓库：先尝试 INSERT，已存在则只更新 name（避免 FK REPLACE 冲突）
   const insertWh = db.prepare('INSERT OR IGNORE INTO warehouses (id, name) VALUES (?, ?)');
   const updateWh = db.prepare('UPDATE warehouses SET name = ? WHERE id = ?');
-  const checkTs = db.prepare('SELECT timestamp FROM stock_movements WHERE id = ?');
-  const insertMovement = db.prepare(`
-    INSERT OR REPLACE INTO stock_movements
-      (id, timestamp, partnerName, warehouseId, type, quantity, unitPrice, syncStatus,
-       color, variety, grossWeight, tareWeight, totalPieces, deliveryPerson, isDeleted, voidReason, isSettled, remark)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
 
   // 先写入仓库：新仓库直接插入，已存在的更新名称
   for (const wh of warehouses) {
@@ -59,46 +52,9 @@ function upsertRecordsAndWarehouses(records, warehouses) {
     }
   }
 
-  // 逐条写入记录（时间戳优先：仅当来电时间戳 ≥ 本地时才覆盖）
-  let inserted = 0, skipped = 0;
-  for (const rec of records) {
-    if (!rec.id) continue;
-    if (!rec.warehouseId) { skipped++; continue; }
-    try {
-      const incomingTs = rec.timestamp || Date.now();
-      const existing = checkTs.get(rec.id);
-      if (existing && existing.timestamp >= incomingTs) {
-        // 本地已有更新的版本，保留本地
-        skipped++;
-        continue;
-      }
-      insertMovement.run(
-        rec.id,
-        incomingTs,
-        rec.partnerName || '',
-        rec.warehouseId,
-        rec.type || 'outbound',
-        rec.quantity || 0,
-        rec.unitPrice || 0,
-        'synced',
-        rec.color || '',
-        rec.variety || '',
-        rec.grossWeight || 0,
-        rec.tareWeight || 0,
-        rec.totalPieces || null,
-        rec.deliveryPerson || null,
-        rec.isDeleted || 0,
-        rec.voidReason || null,
-        rec.isSettled || 0,
-        rec.remark || null,
-      );
-      inserted++;
-    } catch (e) {
-      console.error('[MQTT] 记录写入失败:', rec.id, e.message);
-      skipped++;
-    }
+  if (records.length > 0) {
+    console.log('[MQTT] 已忽略旧版 records: ' + records.length + ' 条（v2.0 仅使用 orders）');
   }
-  if (skipped > 0) console.log('[MQTT] 写入: ' + inserted + ' 条, 跳过: ' + skipped + ' 条（时间戳旧）');
 }
 
 function upsertOrders(orders) {
@@ -193,10 +149,10 @@ function startSubscriber() {
       upsertOrders(orders);
 
       connectionState.lastSyncAt = Date.now();
-      connectionState.lastSyncCount = records.length;
-      logSyncEvent(records.length, warehouses.length, true);
+      connectionState.lastSyncCount = orders.length;
+      logSyncEvent(orders.length, warehouses.length, true);
 
-      console.log('[MQTT] 收到' + (isSnapshot ? '快照' : '增量') + ': ' + records.length + ' 条记录, ' + warehouses.length + ' 个仓库');
+      console.log('[MQTT] 收到' + (isSnapshot ? '快照' : '增量') + ': ' + orders.length + ' 张单据, ' + warehouses.length + ' 个仓库');
 
       // 只有增量消息才触发自动快照发布（避免死循环）
       if (!isSnapshot) {
@@ -243,7 +199,7 @@ function publishSnapshot() {
     const snapshotTopic = process.env.MQTT_TOPIC_SNAPSHOT || 'cctt/sync/snapshot';
 
     const allWarehouses = db.prepare('SELECT * FROM warehouses ORDER BY name ASC').all();
-    const allMovements = db.prepare('SELECT * FROM stock_movements ORDER BY timestamp DESC').all();
+    db.prepare('DELETE FROM stock_movements').run();
     const allOrders = db.prepare('SELECT * FROM orders ORDER BY timestamp DESC').all();
     const orderPayload = allOrders.map(o => ({
       order: o,
@@ -252,7 +208,7 @@ function publishSnapshot() {
     }));
 
     const payload = JSON.stringify({
-      records: allMovements.map(r => ({ ...r, isDeleted: r.isDeleted ? 1 : 0 })),
+      records: [],
       orders: orderPayload,
       warehouses: allWarehouses,
     });
@@ -288,10 +244,10 @@ function publishSnapshot() {
           client.publish('cctt/sync/ack', 'snapshot-ready', { qos: 0 }, () => {
             client.end();
           });
-          db.prepare("UPDATE stock_movements SET syncStatus = 'synced'").run();
-          console.log('[MQTT] 快照已发布: ' + allMovements.length + ' 条记录, ' + allWarehouses.length + ' 个仓库 + Ack');
+          db.prepare("UPDATE orders SET syncStatus = 'synced'").run();
+          console.log('[MQTT] 快照已发布: ' + allOrders.length + ' 张单据, ' + allWarehouses.length + ' 个仓库 + Ack');
           resolve({
-            recordCount: allMovements.length,
+            recordCount: allOrders.length,
             warehouseCount: allWarehouses.length,
           });
         }

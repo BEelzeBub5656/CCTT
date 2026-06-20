@@ -28,7 +28,7 @@ class PullResult {
 
 /// MQTT 同步服务
 ///
-/// 负责将本地 [SyncStatus.pending] / [SyncStatus.failed] 的库存移动记录
+/// 负责将本地 [SyncStatus.pending] / [SyncStatus.failed] 的主单据
 /// 通过 MQTT over TLS 发布到 EMQX Broker，同时支持从云端拉取全量快照。
 ///
 /// **异常安全原则**：所有网络操作都在 try-catch 中，[client.disconnect] 在 finally 中
@@ -61,36 +61,22 @@ class SyncService {
     };
   }
 
-  /// 发布本地待同步记录到云端（包含 records + warehouses）
+  /// 发布本地待同步主单据到云端（包含 orders + warehouses）
   ///
   /// 异常安全：任何步骤抛出异常都会回滚状态为 [SyncStatus.failed]，
   /// 并在 [finally] 中确保 [client.disconnect]。
   static Future<String> syncPendingRecords() async {
     final dbHelper = DatabaseHelper.instance;
 
-    // 检查旧 StockMovement 和 新 Order 的待同步数量
-    final allRecords = await dbHelper.getAllMovements();
-    final pendingRecords = allRecords
-        .where((r) => r.syncStatus != SyncStatus.synced)
-        .toList();
     final pendingOrders = await dbHelper.getPendingOrders();
 
-    if (pendingRecords.isEmpty && pendingOrders.isEmpty) {
+    if (pendingOrders.isEmpty) {
       return '当前没有需要同步的记录';
     }
 
-    final ids = pendingRecords.map((e) => e.id).toList();
-    // 标记旧 records 为 syncing
-    if (ids.isNotEmpty) {
-      await dbHelper.updateSyncStatus(ids, SyncStatus.syncing);
-    }
+    final orderIds = pendingOrders.map((o) => o.id).toList();
     // 标记新 orders 为 syncing
-    if (pendingOrders.isNotEmpty) {
-      await dbHelper.updateOrderSyncStatusBatch(
-        pendingOrders.map((o) => o.id).toList(),
-        SyncStatus.syncing,
-      );
-    }
+    await dbHelper.updateOrderSyncStatusBatch(orderIds, SyncStatus.syncing);
 
     // 收集全量仓库（快照恢复需要完整仓库列表，不能只打包关联仓库）
     final allWarehouses = await dbHelper.getAllWarehouses();
@@ -107,7 +93,7 @@ class SyncService {
         );
       }
 
-      // 打包全量数据（旧 records + 新 orders/items/fees + warehouses）
+      // 打包全量新数据（orders/items/fees + warehouses）
       final allOrders = await dbHelper.getAllOrders();
       final orderPayload = <Map<String, dynamic>>[];
       for (final o in allOrders) {
@@ -120,7 +106,7 @@ class SyncService {
         });
       }
       final payload = jsonEncode({
-        'records': allRecords.map((e) => e.toJson()).toList(),
+        'records': <Map<String, dynamic>>[],
         'orders': orderPayload,
         'warehouses': allWarehouses.map((e) => e.toJson()).toList(),
       });
@@ -135,16 +121,7 @@ class SyncService {
         builder.payload!,
       );
 
-      await dbHelper.updateSyncStatus(ids, SyncStatus.synced);
-
-      // 同时标记 pending 的 Orders 为 synced
-      final pendingOrders = await dbHelper.getPendingOrders();
-      if (pendingOrders.isNotEmpty) {
-        await dbHelper.updateOrderSyncStatusBatch(
-          pendingOrders.map((o) => o.id).toList(),
-          SyncStatus.synced,
-        );
-      }
+      await dbHelper.updateOrderSyncStatusBatch(orderIds, SyncStatus.synced);
 
       // 等待 Web 的 Ack（Web 处理完并发布快照后会通知到 ack 主题）
       client.subscribe(_ackTopic, MqttQos.atLeastOnce);
@@ -164,15 +141,7 @@ class SyncService {
       final pullResult = await pullSnapshot(client: client);
       return '同步完成: ${pullResult.message}';
     } catch (e) {
-      await dbHelper.updateSyncStatus(ids, SyncStatus.failed);
-      // 也标记 pending Orders 为 failed
-      final pendingOrders = await dbHelper.getPendingOrders();
-      if (pendingOrders.isNotEmpty) {
-        await dbHelper.updateOrderSyncStatusBatch(
-          pendingOrders.map((o) => o.id).toList(),
-          SyncStatus.failed,
-        );
-      }
+      await dbHelper.updateOrderSyncStatusBatch(orderIds, SyncStatus.failed);
       return '同步失败: $e';
     } finally {
       client?.disconnect();
@@ -192,9 +161,9 @@ class SyncService {
     final dbHelper = DatabaseHelper.instance;
     final bool ownClient = client == null;
 
-    // 拉取前统计本地记录数，用于计算新增量
-    final beforeMovements = await dbHelper.getAllMovements();
-    final beforeCount = beforeMovements.length;
+    // 拉取前统计本地主单据数，用于计算新增量
+    final beforeOrders = await dbHelper.getAllOrders();
+    final beforeCount = beforeOrders.length;
     int whAdded = 0;
 
     try {
@@ -232,7 +201,6 @@ class SyncService {
       // 绝对安全的 JSON 解析，防止 Null is not a subtype 崩溃
       final Map<String, dynamic> data =
           jsonDecode(payloadString) as Map<String, dynamic>;
-      final List<dynamic> recordsList = data['records'] as List<dynamic>? ?? [];
       final List<dynamic> ordersList = data['orders'] as List<dynamic>? ?? [];
       final List<dynamic> warehousesList =
           data['warehouses'] as List<dynamic>? ?? [];
@@ -242,57 +210,34 @@ class SyncService {
         for (final e in warehousesList) {
           if (e is! Map<String, dynamic>) continue;
           final wh = Warehouse.fromJson(e);
-          await dbHelper.insertWarehouse(wh, conflictAlgorithm: ConflictAlgorithm.replace);
+          await dbHelper.insertWarehouse(wh,
+              conflictAlgorithm: ConflictAlgorithm.replace);
           whAdded++;
         }
       }
 
-      // 2. 写入 records — 时间戳优先 + pending 保护
-      final snapshotIds = <String>{};
-      final localRecords = await dbHelper.getAllMovements();
-      final localMap = {for (final r in localRecords) r.id: r};
-
-      if (recordsList.isNotEmpty) {
-        for (final e in recordsList) {
-          if (e is! Map<String, dynamic>) continue;
-          final record = StockMovement.fromJson(e);
-          final local = localMap[record.id];
-          if (local != null) {
-            // 终态保护：本地已作废，且快照不是更新的 → 不允许复活
-            // 但如果 Web 刚恢复了（时间戳更新），则应接受恢复
-            if (local.isDeleted && !record.isDeleted && local.timestamp >= record.timestamp) {
-              snapshotIds.add(record.id);
-              continue;
-            }
-            // 保护2：本地有未提交修改（pending/syncing），拒绝任何覆盖
-            if (local.syncStatus == SyncStatus.pending ||
-                local.syncStatus == SyncStatus.syncing) {
-              snapshotIds.add(record.id);
-              continue;
-            }
-            // 保护3：本地时间戳不旧于快照 → 保留本地
-            if (local.timestamp >= record.timestamp) {
-              snapshotIds.add(record.id);
-              continue;
-            }
-          }
-          await dbHelper.insertMovement(record, conflictAlgorithm: ConflictAlgorithm.replace);
-          snapshotIds.add(record.id);
-        }
+      // 2. 清理旧 StockMovement 行。v2.0 起只使用 Order 新数据。
+      final oldRecords = await dbHelper.getAllMovements();
+      if (oldRecords.isNotEmpty) {
+        await dbHelper.deleteMovements(oldRecords.map((r) => r.id).toList());
       }
 
-      // 2.5 处理 Orders（含 items 和 fees）
+      // 3. 处理 Orders（含 items 和 fees）
+      final snapshotOrderIds = <String>{};
       for (final oe in ordersList) {
         if (oe is! Map<String, dynamic>) continue;
         final orderJson = oe['order'] as Map<String, dynamic>?;
         if (orderJson == null) continue;
         final order = Order.fromJson(orderJson);
+        snapshotOrderIds.add(order.id);
         final itemsJson = (oe['items'] as List<dynamic>?) ?? [];
         final feesJson = (oe['fees'] as List<dynamic>?) ?? [];
 
         // 时间戳保护
         final localOrder = await dbHelper.getOrderById(order.id);
-        if (localOrder != null && localOrder.timestamp >= order.timestamp && localOrder.syncStatus != SyncStatus.syncing) {
+        if (localOrder != null &&
+            localOrder.timestamp >= order.timestamp &&
+            localOrder.syncStatus != SyncStatus.syncing) {
           continue;
         }
 
@@ -300,8 +245,12 @@ class SyncService {
         // 清除旧明细/费用，写入新数据
         final oldItems = await dbHelper.getOrderItems(order.id);
         final oldFees = await dbHelper.getOrderFees(order.id);
-        for (final oi in oldItems) { await dbHelper.deleteOrderItem(oi.id); }
-        for (final of in oldFees) { await dbHelper.deleteOrderFee(of.id); }
+        for (final oi in oldItems) {
+          await dbHelper.deleteOrderItem(oi.id);
+        }
+        for (final of in oldFees) {
+          await dbHelper.deleteOrderFee(of.id);
+        }
         for (final ij in itemsJson) {
           if (ij is! Map<String, dynamic>) continue;
           await dbHelper.insertOrderItem(OrderItem.fromJson(ij));
@@ -312,21 +261,22 @@ class SyncService {
         }
       }
 
-      // 3. 清理本地有但快照中没有的记录（Web 端已永久删除的）
+      // 4. 清理本地有但快照中没有的已同步 Order（Web 端已永久删除的）
       // 安全保护：只删已同步记录（pending 是本地新建未推送的，不能丢）
-      // 不再限制快照最小数量——空快照表示 Master 已清空，手机端也应清空
-      final localAfter = await dbHelper.getAllMovements();
-      final toDelete = localAfter
-          .where((l) => l.syncStatus == SyncStatus.synced && !snapshotIds.contains(l.id))
+      final localOrdersAfter = await dbHelper.getAllOrders();
+      final ordersToDelete = localOrdersAfter
+          .where((o) =>
+              o.syncStatus == SyncStatus.synced &&
+              !snapshotOrderIds.contains(o.id))
           .map((l) => l.id)
           .toList();
-      if (toDelete.isNotEmpty) {
-        await dbHelper.deleteMovements(toDelete);
+      for (final id in ordersToDelete) {
+        await dbHelper.deleteOrder(id);
       }
 
       // 拉取后统计，计算实际差异
-      final afterMovements = await dbHelper.getAllMovements();
-      final afterCount = afterMovements.length;
+      final afterOrders = await dbHelper.getAllOrders();
+      final afterCount = afterOrders.length;
       final newRecords = afterCount - beforeCount;
 
       client.unsubscribe(_snapshotTopic);
@@ -335,8 +285,8 @@ class SyncService {
         addedCount: newRecords > 0 ? newRecords : 0,
         warehouseCount: whAdded,
         message: newRecords > 0
-            ? '成功从云端获取 $newRecords 条新记录'
-            : '已与云端同步（本地 $afterCount 条记录）',
+            ? '成功从云端获取 $newRecords 张新单据'
+            : '已与云端同步（本地 $afterCount 张单据）',
       );
     } catch (e) {
       return PullResult(

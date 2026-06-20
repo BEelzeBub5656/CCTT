@@ -11,7 +11,7 @@ import '../models/warehouse.dart';
 /// 支持多仓库库存管理，严格遵循 Offline-First 原则。
 class DatabaseHelper {
   static const String _databaseName = 'cctt_database.db';
-  static const int _databaseVersion = 9; // v9: 新增 orders + order_items + order_fees 主单据架构
+  static const int _databaseVersion = 10; // v10: 仅保留 Order 新数据，清空旧流水数据
 
   // 表名
   static const String _warehousesTable = 'warehouses';
@@ -49,6 +49,9 @@ class DatabaseHelper {
   Future<void> _onCreate(Database db, int version) async {
     await _createWarehousesTable(db);
     await _createStockMovementsTable(db);
+    await _createOrdersTable(db);
+    await _createOrderItemsTable(db);
+    await _createOrderFeesTable(db);
   }
 
   /// 数据库升级
@@ -58,6 +61,7 @@ class DatabaseHelper {
   /// - v3 → v4：拆分 productName → color + variety，不丢失任何数据
   /// - v4 → v5：新增 isDeleted 软删除字段（INTEGER DEFAULT 0）
   /// - v5 → v6：新增 imagePath 留档照片字段（TEXT，可为 NULL）
+  /// - v9 → v10：Order 成为唯一正式数据，清空旧 stock_movements 行
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // 删除旧版 transaction_records 表（如有）
@@ -69,14 +73,14 @@ class DatabaseHelper {
 
     if (oldVersion < 3) {
       // v2 → v3：为已存在的 stock_movements 表添加新列（nullable，兼容旧数据）
-      await db.execute(
-          'ALTER TABLE $_movementsTable ADD COLUMN productName TEXT');
+      await db
+          .execute('ALTER TABLE $_movementsTable ADD COLUMN productName TEXT');
       await db.execute(
           'ALTER TABLE $_movementsTable ADD COLUMN totalPieces INTEGER');
-      await db.execute(
-          'ALTER TABLE $_movementsTable ADD COLUMN grossWeight REAL');
-      await db.execute(
-          'ALTER TABLE $_movementsTable ADD COLUMN tareWeight REAL');
+      await db
+          .execute('ALTER TABLE $_movementsTable ADD COLUMN grossWeight REAL');
+      await db
+          .execute('ALTER TABLE $_movementsTable ADD COLUMN tareWeight REAL');
       await db.execute(
           'ALTER TABLE $_movementsTable ADD COLUMN deliveryPerson TEXT');
     }
@@ -99,28 +103,33 @@ class DatabaseHelper {
 
     if (oldVersion < 6) {
       // v5 → v6：新增 imagePath 留档照片字段（可空）
-      await db.execute(
-          'ALTER TABLE $_movementsTable ADD COLUMN imagePath TEXT');
+      await db
+          .execute('ALTER TABLE $_movementsTable ADD COLUMN imagePath TEXT');
     }
 
     if (oldVersion < 7) {
-      await db.execute(
-          'ALTER TABLE $_movementsTable ADD COLUMN voidReason TEXT');
+      await db
+          .execute('ALTER TABLE $_movementsTable ADD COLUMN voidReason TEXT');
     }
 
     if (oldVersion < 8) {
       await db.execute(
           "ALTER TABLE $_movementsTable ADD COLUMN isSettled INTEGER NOT NULL DEFAULT 0");
-      await db.execute(
-          'ALTER TABLE $_movementsTable ADD COLUMN remark TEXT');
+      await db.execute('ALTER TABLE $_movementsTable ADD COLUMN remark TEXT');
     }
 
     if (oldVersion < 9) {
       await _createOrdersTable(db);
       await _createOrderItemsTable(db);
       await _createOrderFeesTable(db);
-      // 迁移旧数据：每条 stock_movement → 1 order + 1 order_item
-      await _migrateV9(db);
+    }
+
+    if (oldVersion < 10) {
+      await _createOrdersTable(db);
+      await _createOrderItemsTable(db);
+      await _createOrderFeesTable(db);
+      // v2.0 起只使用 Order 新数据；旧 StockMovement 行不再迁移或展示。
+      await db.delete(_movementsTable);
     }
   }
 
@@ -187,8 +196,10 @@ class DatabaseHelper {
         FOREIGN KEY (warehouseId) REFERENCES $_warehousesTable(id) ON DELETE RESTRICT
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_orders_wh ON $_ordersTable(warehouseId)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_orders_sync ON $_ordersTable(syncStatus)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_orders_wh ON $_ordersTable(warehouseId)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_orders_sync ON $_ordersTable(syncStatus)');
   }
 
   /// 创建 order_items 表（v9）
@@ -209,7 +220,8 @@ class DatabaseHelper {
         FOREIGN KEY (orderId) REFERENCES $_ordersTable(id) ON DELETE CASCADE
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_items_order ON $_orderItemsTable(orderId)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_items_order ON $_orderItemsTable(orderId)');
   }
 
   /// 创建 order_fees 表（v9）
@@ -227,130 +239,126 @@ class DatabaseHelper {
     ''');
   }
 
-  /// v9 迁移：旧 stock_movements → orders + order_items
-  Future<void> _migrateV9(Database db) async {
-    final rows = await db.query(_movementsTable);
-    if (rows.isEmpty) return;
-
-    for (final m in rows) {
-      // 检查是否已迁移
-      final existing = await db.query(_ordersTable, where: 'id = ?', whereArgs: [m['id']], limit: 1);
-      if (existing.isNotEmpty) continue;
-
-      final itemName = [
-        (m['color'] as String?) ?? '',
-        (m['variety'] as String?) ?? '',
-      ].where((s) => s.isNotEmpty).join(' ').trim();
-      final fallback = (m['partnerName'] as String?) ?? '';
-
-      await db.insert(_ordersTable, {
-        'id': m['id'],
-        'partnerName': m['partnerName'],
-        'warehouseId': m['warehouseId'],
-        'type': m['type'],
-        'timestamp': m['timestamp'],
-        'syncStatus': m['syncStatus'],
-        'isDeleted': m['isDeleted'],
-        'isSettled': m['isSettled'],
-        'remark': m['remark'],
-        'voidReason': m['voidReason'],
-      }, conflictAlgorithm: ConflictAlgorithm.ignore);
-
-      await db.insert(_orderItemsTable, {
-        'id': '${m['id']}_item',
-        'orderId': m['id'],
-        'itemName': itemName.isNotEmpty ? itemName : fallback,
-        'quantity': m['quantity'],
-        'unitPrice': m['unitPrice'],
-        'grossWeight': m['grossWeight'],
-        'tareWeight': m['tareWeight'],
-        'totalPieces': m['totalPieces'],
-        'deliveryPerson': m['deliveryPerson'],
-        'imagePath': m['imagePath'],
-        'sortOrder': 0,
-      }, conflictAlgorithm: ConflictAlgorithm.ignore);
-    }
-  }
-
   // =================== Order CRUD ===================
 
   Future<int> insertOrder(Order order) async {
     final db = await database;
-    return db.insert(_ordersTable, order.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+    await _createOrdersTable(db);
+    return db.insert(_ordersTable, order.toJson(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<int> updateOrder(Order order) async {
     final db = await database;
-    return db.update(_ordersTable, order.toJson(), where: 'id = ?', whereArgs: [order.id]);
+    await _createOrdersTable(db);
+    return db.update(_ordersTable, order.toJson(),
+        where: 'id = ?', whereArgs: [order.id]);
   }
 
   Future<Order?> getOrderById(String id) async {
     final db = await database;
-    final maps = await db.query(_ordersTable, where: 'id = ?', whereArgs: [id], limit: 1);
+    // 兼容旧库升级未创建表的情况
+    await _createOrdersTable(db);
+    final maps = await db.query(_ordersTable,
+        where: 'id = ?', whereArgs: [id], limit: 1);
     if (maps.isEmpty) return null;
     return Order.fromJson(maps.first);
   }
 
   Future<List<Order>> getAllOrders() async {
     final db = await database;
+    await _createOrdersTable(db);
     final maps = await db.query(_ordersTable, orderBy: 'timestamp DESC');
     return maps.map((m) => Order.fromJson(m)).toList();
   }
 
   Future<List<Order>> getOrdersByWarehouse(String warehouseId) async {
     final db = await database;
-    final maps = await db.query(_ordersTable, where: 'warehouseId = ?', whereArgs: [warehouseId], orderBy: 'timestamp DESC');
+    await _createOrdersTable(db);
+    final maps = await db.query(_ordersTable,
+        where: 'warehouseId = ?',
+        whereArgs: [warehouseId],
+        orderBy: 'timestamp DESC');
     return maps.map((m) => Order.fromJson(m)).toList();
   }
 
   Future<List<Order>> getPendingOrders() async {
     final db = await database;
+    await _createOrdersTable(db);
     final maps = await db.query(_ordersTable,
-      where: 'syncStatus = ? OR syncStatus = ?',
-      whereArgs: [SyncStatus.pending.name, SyncStatus.syncing.name],
-      orderBy: 'timestamp DESC');
+        where: 'syncStatus = ? OR syncStatus = ? OR syncStatus = ?',
+        whereArgs: [
+          SyncStatus.pending.name,
+          SyncStatus.syncing.name,
+          SyncStatus.failed.name
+        ],
+        orderBy: 'timestamp DESC');
     return maps.map((m) => Order.fromJson(m)).toList();
   }
 
   Future<int> updateOrderSyncStatus(String id, SyncStatus status) async {
     final db = await database;
-    return db.update(_ordersTable, {'syncStatus': status.name}, where: 'id = ?', whereArgs: [id]);
+    await _createOrdersTable(db);
+    return db.update(_ordersTable, {'syncStatus': status.name},
+        where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<void> updateOrderSyncStatusBatch(List<String> ids, SyncStatus status) async {
+  Future<void> updateOrderSyncStatusBatch(
+      List<String> ids, SyncStatus status) async {
     final db = await database;
+    await _createOrdersTable(db);
     final batch = db.batch();
     for (final id in ids) {
-      batch.update(_ordersTable, {'syncStatus': status.name}, where: 'id = ?', whereArgs: [id]);
+      batch.update(_ordersTable, {'syncStatus': status.name},
+          where: 'id = ?', whereArgs: [id]);
     }
     await batch.commit(noResult: false);
   }
 
   Future<int> deleteOrder(String id) async {
     final db = await database;
-    return db.delete(_ordersTable, where: 'id = ?', whereArgs: [id]);
+    await _createOrdersTable(db);
+    await _createOrderItemsTable(db);
+    await _createOrderFeesTable(db);
+    final batch = db.batch();
+    batch.delete(_orderItemsTable, where: 'orderId = ?', whereArgs: [id]);
+    batch.delete(_orderFeesTable, where: 'orderId = ?', whereArgs: [id]);
+    batch.delete(_ordersTable, where: 'id = ?', whereArgs: [id]);
+    final results = await batch.commit(noResult: false);
+    var totalChanges = 0;
+    for (final result in results) {
+      if (result is int) totalChanges += result;
+    }
+    return totalChanges;
   }
 
   // =================== OrderItem CRUD ===================
 
   Future<int> insertOrderItem(OrderItem item) async {
     final db = await database;
-    return db.insert(_orderItemsTable, item.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+    await _createOrderItemsTable(db);
+    return db.insert(_orderItemsTable, item.toJson(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<int> updateOrderItem(OrderItem item) async {
     final db = await database;
-    return db.update(_orderItemsTable, item.toJson(), where: 'id = ?', whereArgs: [item.id]);
+    await _createOrderItemsTable(db);
+    return db.update(_orderItemsTable, item.toJson(),
+        where: 'id = ?', whereArgs: [item.id]);
   }
 
   Future<int> deleteOrderItem(String id) async {
     final db = await database;
+    await _createOrderItemsTable(db);
     return db.delete(_orderItemsTable, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<List<OrderItem>> getOrderItems(String orderId) async {
     final db = await database;
-    final maps = await db.query(_orderItemsTable, where: 'orderId = ?', whereArgs: [orderId], orderBy: 'sortOrder ASC');
+    await _createOrderItemsTable(db);
+    final maps = await db.query(_orderItemsTable,
+        where: 'orderId = ?', whereArgs: [orderId], orderBy: 'sortOrder ASC');
     return maps.map((m) => OrderItem.fromJson(m)).toList();
   }
 
@@ -358,22 +366,29 @@ class DatabaseHelper {
 
   Future<int> insertOrderFee(OrderFee fee) async {
     final db = await database;
-    return db.insert(_orderFeesTable, fee.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+    await _createOrderFeesTable(db);
+    return db.insert(_orderFeesTable, fee.toJson(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<int> updateOrderFee(OrderFee fee) async {
     final db = await database;
-    return db.update(_orderFeesTable, fee.toJson(), where: 'id = ?', whereArgs: [fee.id]);
+    await _createOrderFeesTable(db);
+    return db.update(_orderFeesTable, fee.toJson(),
+        where: 'id = ?', whereArgs: [fee.id]);
   }
 
   Future<int> deleteOrderFee(String id) async {
     final db = await database;
+    await _createOrderFeesTable(db);
     return db.delete(_orderFeesTable, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<List<OrderFee>> getOrderFees(String orderId) async {
     final db = await database;
-    final maps = await db.query(_orderFeesTable, where: 'orderId = ?', whereArgs: [orderId], orderBy: 'sortOrder ASC');
+    await _createOrderFeesTable(db);
+    final maps = await db.query(_orderFeesTable,
+        where: 'orderId = ?', whereArgs: [orderId], orderBy: 'sortOrder ASC');
     return maps.map((m) => OrderFee.fromJson(m)).toList();
   }
 
@@ -389,7 +404,8 @@ class DatabaseHelper {
   // =================== Warehouses CRUD ===================
 
   /// 新增仓库
-  Future<int> insertWarehouse(Warehouse warehouse, {ConflictAlgorithm conflictAlgorithm = ConflictAlgorithm.replace}) async {
+  Future<int> insertWarehouse(Warehouse warehouse,
+      {ConflictAlgorithm conflictAlgorithm = ConflictAlgorithm.replace}) async {
     final db = await database;
     return await db.insert(
       _warehousesTable,
@@ -434,7 +450,8 @@ class DatabaseHelper {
   ///
   /// [conflictAlgorithm] 默认 [ConflictAlgorithm.replace]（用于本地编辑覆盖）。
   /// 拉取云端快照时传 [ConflictAlgorithm.ignore]，确保本地数据不被覆盖（本地优先，只添加不删除）。
-  Future<int> insertMovement(StockMovement movement, {ConflictAlgorithm conflictAlgorithm = ConflictAlgorithm.replace}) async {
+  Future<int> insertMovement(StockMovement movement,
+      {ConflictAlgorithm conflictAlgorithm = ConflictAlgorithm.replace}) async {
     final db = await database;
     return await db.insert(
       _movementsTable,
@@ -454,7 +471,8 @@ class DatabaseHelper {
   }
 
   /// 查询指定仓库的所有记录
-  Future<List<StockMovement>> getMovementsByWarehouse(String warehouseId) async {
+  Future<List<StockMovement>> getMovementsByWarehouse(
+      String warehouseId) async {
     final db = await database;
     final maps = await db.query(
       _movementsTable,
@@ -510,7 +528,8 @@ class DatabaseHelper {
     if (ids.isEmpty) return;
     final db = await database;
     final placeholders = ids.map((_) => '?').join(',');
-    await db.delete(_movementsTable, where: 'id IN ($placeholders)', whereArgs: ids);
+    await db.delete(_movementsTable,
+        where: 'id IN ($placeholders)', whereArgs: ids);
   }
 
   /// 批量更新多条记录的同步状态

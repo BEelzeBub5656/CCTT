@@ -69,6 +69,9 @@ function initialize() {
   try { db.exec(`ALTER TABLE stock_movements ADD COLUMN isSettled INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
   try { db.exec(`ALTER TABLE stock_movements ADD COLUMN remark TEXT`); } catch (_) {}
 
+  // v2.0 起仅使用 orders/order_items/order_fees；旧流水行不再保留。
+  db.exec(`DELETE FROM stock_movements`);
+
   console.log('[DB] 数据库初始化完成:', DB_PATH);
   return db;
 }

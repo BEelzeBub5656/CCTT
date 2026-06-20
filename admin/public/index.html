@@ -80,7 +80,7 @@ import { renderMovementForm } from '/js/pages/movement-form.js';
 import { renderMovementDetail } from '/js/pages/movement-detail.js';
 import { renderWarehouses } from '/js/pages/warehouses.js';
 import { renderSettings } from '/js/pages/settings.js';
-import { renderOrders } from '/js/pages/orders.js';
+import { renderOrders, renderOrderDetail } from '/js/pages/orders.js';
 
 // 路由注册
 router.on('#/dashboard', () => renderDashboard());
@@ -89,6 +89,7 @@ router.on('#/movements/new', () => renderMovementForm());
 router.on('#/movements/:id', (p) => renderMovementDetail(p.id));
 router.on('#/movements/:id/edit', (p) => renderMovementForm(p.id));
 router.on('#/orders', () => renderOrders());
+router.on('#/orders/:id', (p) => renderOrderDetail(p.id));
 router.on('#/warehouses', () => renderWarehouses());
 router.on('#/settings', () => renderSettings());
 

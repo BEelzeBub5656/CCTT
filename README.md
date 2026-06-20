@@ -1,6 +1,6 @@
 # CCTT 库存管理
 
-离线优先的库存管理 App，专为**毛纺厂出入库场景**设计。支持本地 SQLite 持久化、拍照 OCR 录入、极速连录重量、MQTT over TLS 同步到 PC 后端。
+离线优先的库存管理 App，专为**毛纺厂出入库场景**设计。支持本地 SQLite 持久化、拍照/相册留档、极速连录重量、MQTT over TLS 同步到 PC 后端。
 
 ## 版本历史
 
@@ -18,7 +18,7 @@
 | **单据详情** | 卡片分组展示全部字段，含毛重-扣皮净重校验 |
 | **同步状态** | 四色标签：🟠未同步 / 🔵正在同步 / 🟢已同步 / 🔴同步失败 |
 | **MQTT 同步** | EMQX 公有云 Broker，8883/TLS，自动重试非 synced 记录 |
-| **OCR 识别** | camera + google_mlkit_text_recognition + image_picker（真机调优中） |
+| **照片留档** | camera + image_picker，将票据照片保存到本地并绑定到单据/明细 |
 
 ## 技术栈
 
