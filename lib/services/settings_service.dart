@@ -58,7 +58,7 @@ class SettingsService {
 
   static Future<String> getOcrServerUrl() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_kOcrServerUrl) ?? 'https://beelzebub.top';
+    return prefs.getString(_kOcrServerUrl) ?? 'https://www.beelzebub.top';
   }
 
   static Future<void> setOcrServerUrl(String value) async {
