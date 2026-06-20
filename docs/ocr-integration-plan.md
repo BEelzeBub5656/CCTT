@@ -44,7 +44,10 @@ Response:
 | `lib/services/ocr_service.dart` | **新建** — HTTP 上传 + 响应解析 |
 | `lib/pages/settings_page.dart` | **新建** — OCR/MQTT 设置页 |
 | `lib/pages/home_page.dart` | AppBar 新增设置按钮 |
-| `lib/pages/add_order_page.dart` | 新增 OCR 拍照识别按钮 + 调用逻辑 |
+| `lib/pages/add_order_page.dart` | 新增 OCR 拍照识别按钮 + 调用逻辑 + 传 OCR 明细到下一步 |
+| `lib/pages/add_order_item_page.dart` | 无需修改（已有 `existingItems`/`existingFees` 参数，OCR 结果直接传入） |
+
+**关于图片压缩：** 复用 `image_picker` 自带的 `maxWidth: 1920` 参数即可，照片通常压缩到 200-500KB，无需额外依赖。相机拍照用 `ResolutionPreset.medium`（与现有模式一致）。
 
 ## 实施步骤
 
