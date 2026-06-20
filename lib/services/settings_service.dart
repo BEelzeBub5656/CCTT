@@ -4,11 +4,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// 封装 [SharedPreferences] 的读写操作，提供类型安全的静态方法。
 class SettingsService {
-  // MQTT 配置 keys
+  // Keys
   static const _kMqttBroker = 'mqtt_broker';
   static const _kMqttPort = 'mqtt_port';
   static const _kMqttUsername = 'mqtt_username';
   static const _kMqttPassword = 'mqtt_password';
+  static const _kOcrServerUrl = 'ocr_server_url';
 
   // ───────────── MQTT 配置 ─────────────
 
@@ -51,5 +52,17 @@ class SettingsService {
   static Future<void> setMqttPassword(String value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kMqttPassword, value.trim());
+  }
+
+  // ───────────── OCR 配置 ─────────────
+
+  static Future<String> getOcrServerUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kOcrServerUrl) ?? 'https://beelzebub.top';
+  }
+
+  static Future<void> setOcrServerUrl(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kOcrServerUrl, value.trim());
   }
 }

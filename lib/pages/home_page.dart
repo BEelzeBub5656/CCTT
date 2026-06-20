@@ -7,6 +7,7 @@ import '../models/warehouse.dart';
 import '../services/sync_service.dart';
 import 'add_order_page.dart';
 import 'order_detail_page.dart';
+import 'settings_page.dart';
 
 /// 主页面
 ///
@@ -465,6 +466,15 @@ class _HomePageState extends State<HomePage> {
                     warehouseName: _warehouseName,
                   ),
                 ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: '设置',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
               );
             },
           ),
