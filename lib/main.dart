@@ -1,18 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'pages/home_page.dart';
+import 'theme/app_theme.dart';
 
 void main() {
-  // Windows / Linux / macOS 桌面端需要初始化 FFI 数据库工厂
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  }
-
   runApp(const CcttApp());
 }
 
@@ -33,10 +25,7 @@ class CcttApp extends StatelessWidget {
         Locale('zh', 'CN'),
         Locale('en', 'US'),
       ],
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-        useMaterial3: true,
-      ),
+      theme: CCTTTheme.lightTheme,
       home: const HomePage(),
     );
   }

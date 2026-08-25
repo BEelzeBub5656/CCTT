@@ -10,6 +10,7 @@ class SettingsService {
   static const _kMqttUsername = 'mqtt_username';
   static const _kMqttPassword = 'mqtt_password';
   static const _kOcrServerUrl = 'ocr_server_url';
+  static const _kUpdateManifestUrl = 'update_manifest_url';
 
   // ───────────── MQTT 配置 ─────────────
 
@@ -64,5 +65,18 @@ class SettingsService {
   static Future<void> setOcrServerUrl(String value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kOcrServerUrl, value.trim());
+  }
+
+  // ───────────── 应用更新配置 ─────────────
+
+  static Future<String> getUpdateManifestUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kUpdateManifestUrl) ??
+        'https://beelzebub.top/api/app-update/latest';
+  }
+
+  static Future<void> setUpdateManifestUrl(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kUpdateManifestUrl, value.trim());
   }
 }

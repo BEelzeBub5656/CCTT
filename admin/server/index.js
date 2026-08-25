@@ -32,6 +32,7 @@ app.use('/api/stats', require('./routes/stats'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/sync', require('./routes/sync'));
 app.use('/api/version', require('./routes/version'));
+app.use('/api/app-update', require('./routes/app-update'));
 
 // APK文件下载路由
 app.use('/downloads', express.static(path.join(__dirname, '..', 'downloads')));

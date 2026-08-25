@@ -5,17 +5,17 @@ const path = require('path');
 
 // 当前最新版本信息（可以从文件或数据库读取）
 let latestVersion = {
-  versionCode: 11,
-  versionName: '2.0.1',
+  versionCode: 2,
+  versionName: '0.1.1',
   buildTime: Date.now(),
-  downloadUrl: 'https://www.beelzebub.top/downloads/cctt-v2.0.1.apk',
+  downloadUrl: 'https://www.beelzebub.top/downloads/cctt-v0.1.1.apk',
   fileSize: 0, // 字节
   md5: '',
   changelog: [
-    '新增：表单字段映射实体出库单（编号、件号、明细备注、总计件数）',
-    '新增：离线数据同步功能',
-    '优化：订单详情页面显示',
-    '修复：数据库迁移问题'
+    '新增：按日期生成出货和进货汇总',
+    '新增：进货客户及品类统计',
+    '新增：云端版本检查和应用内安装',
+    '修复：设置页检查更新返回 401'
   ],
   forceUpdate: false, // 是否强制更新
   minVersion: 1 // 最低支持的版本号，低于此版本必须更新
@@ -73,6 +73,18 @@ router.get('/latest', (req, res) => {
  * - forceUpdate: 是否强制更新
  */
 router.post('/update', (req, res) => {
+  const remoteAddress = req.socket.remoteAddress || '';
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const isLoopback = remoteAddress === '127.0.0.1' ||
+    remoteAddress === '::1' ||
+    remoteAddress === '::ffff:127.0.0.1';
+  if (forwardedFor || !isLoopback) {
+    return res.status(403).json({
+      success: false,
+      message: '仅允许服务器本机更新版本信息'
+    });
+  }
+
   const { versionCode, versionName, downloadUrl, changelog, forceUpdate, minVersion, fileSize, md5 } = req.body;
 
   if (!versionCode || !versionName || !downloadUrl) {

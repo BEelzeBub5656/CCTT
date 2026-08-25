@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../services/settings_service.dart';
+import '../services/update_service.dart';
+import '../widgets/update_dialog.dart';
 
 /// 设置页 — OCR 服务器 + MQTT 配置
 class SettingsPage extends StatefulWidget {
@@ -17,6 +19,8 @@ class _SettingsPageState extends State<SettingsPage> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _loading = true;
+  bool _checkingUpdate = false;
+  String _currentVersion = '读取中...';
 
   @override
   void initState() {
@@ -30,6 +34,11 @@ class _SettingsPageState extends State<SettingsPage> {
     _portController.text = (await SettingsService.getMqttPort()).toString();
     _usernameController.text = await SettingsService.getMqttUsername();
     _passwordController.text = await SettingsService.getMqttPassword();
+    try {
+      _currentVersion = (await UpdateService.getCurrentVersion()).displayText;
+    } catch (_) {
+      _currentVersion = '读取失败';
+    }
     if (mounted) setState(() => _loading = false);
   }
 
@@ -44,6 +53,16 @@ class _SettingsPageState extends State<SettingsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('设置已保存')),
       );
+    }
+  }
+
+  Future<void> _checkForUpdate() async {
+    setState(() => _checkingUpdate = true);
+    try {
+      if (!mounted) return;
+      await checkUpdateManually(context);
+    } finally {
+      if (mounted) setState(() => _checkingUpdate = false);
     }
   }
 
@@ -68,6 +87,40 @@ class _SettingsPageState extends State<SettingsPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
+        // ── 应用更新 ──
+        _sectionTitle('应用更新'),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.system_update_alt),
+                  title: const Text('当前版本'),
+                  subtitle: Text(_currentVersion),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _checkingUpdate ? null : _checkForUpdate,
+                  icon: _checkingUpdate
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                  label: Text(_checkingUpdate ? '正在检查...' : '检查更新'),
+                ),
+                const Text(
+                  '通过云服务器检查版本，发现更新后可直接下载并安装。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
         // ── OCR 配置 ──
         _sectionTitle('OCR 识别配置'),
         Card(
@@ -150,8 +203,6 @@ class _SettingsPageState extends State<SettingsPage> {
         padding: const EdgeInsets.only(left: 4, bottom: 8),
         child: Text(text,
             style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey)),
+                fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)),
       );
 }

@@ -12,6 +12,8 @@ import '../models/order.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 import '../services/ocr_service.dart';
+import '../theme/app_theme.dart';
+import '../widgets/cctt_components.dart';
 import 'add_order_item_page.dart';
 
 /// 新建主单据页（仓库/日期/类型/客户 + OCR 拍照识别）
@@ -47,22 +49,6 @@ class _AddOrderPageState extends State<AddOrderPage> {
   Future<void> _loadWarehouses() async {
     final warehouses = await DatabaseHelper.instance.getAllWarehouses();
     if (mounted) setState(() => _warehouses = warehouses);
-  }
-
-  Color _typeColor(MovementType t) {
-    switch (t) {
-      case MovementType.inbound: return Colors.green;
-      case MovementType.outbound: return Colors.red;
-      case MovementType.supply: return Colors.orange;
-    }
-  }
-
-  String _typeLabel(MovementType t) {
-    switch (t) {
-      case MovementType.inbound: return '入库';
-      case MovementType.outbound: return '出库';
-      case MovementType.supply: return '进货';
-    }
   }
 
   // ═══════════════════ OCR 拍照/选图 ═══════════════════
@@ -336,135 +322,335 @@ class _AddOrderPageState extends State<AddOrderPage> {
   @override
   Widget build(BuildContext context) {
     final hasWarehouse = _warehouses.isNotEmpty;
+
     return Scaffold(
       appBar: AppBar(title: const Text('新建单据')),
       body: Form(
-        child: ListView(padding: const EdgeInsets.all(16), children: [
-          // 仓库
-          Card(child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [
-            const Text('目标仓库', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-            const Spacer(),
-            SizedBox(width: 180, child: DropdownButtonFormField<String>(
-              value: _selectedWarehouseId,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            CCTTTheme.space4,
+            CCTTTheme.space4,
+            CCTTTheme.space4,
+            CCTTTheme.space8,
+          ),
+          children: [
+            // OCR 排在第一位：这是最省力的录入方式，理应是默认路径。
+            OCRHeroCard(
+              onTakePhoto: _takePhotoForOcr,
+              onPickGallery: _pickFromGalleryForOcr,
+              isProcessing: _isOcrLoading,
+              recognizedCount: _ocrResultCount > 0 ? _ocrResultCount : null,
+            ),
+
+            const CCTTSectionLabel(label: '或者手动填写'),
+
+            if (!hasWarehouse)
+              Container(
+                margin: const EdgeInsets.only(bottom: CCTTTheme.space3),
+                padding: const EdgeInsets.all(CCTTTheme.space3),
+                decoration: BoxDecoration(
+                  color: CCTTTheme.statusPending.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(CCTTTheme.radiusMedium),
+                  border: Border.all(
+                    color: CCTTTheme.statusPending.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: CCTTTheme.statusPending,
+                    ),
+                    SizedBox(width: CCTTTheme.space2),
+                    Expanded(
+                      child: Text(
+                        '还没有仓库，先回上一页建一个仓库才能保存单据',
+                        style: TextStyle(fontSize: 13, height: 1.4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // 类型：三个并列的大按钮，比 ChoiceChip 更好点，也更好扫
+            _fieldLabel('单据类型'),
+            Row(
+              children: MovementType.values.map((t) {
+                final selected = _selectedType == t;
+                final color = CCTTTheme.typeColor(t);
+                return Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      right: t == MovementType.values.last
+                          ? 0
+                          : CCTTTheme.space2,
+                    ),
+                    child: InkWell(
+                      onTap: () => setState(() => _selectedType = t),
+                      borderRadius:
+                          BorderRadius.circular(CCTTTheme.radiusMedium),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: CCTTTheme.space3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? color.withValues(alpha: 0.1)
+                              : Colors.white,
+                          borderRadius:
+                              BorderRadius.circular(CCTTTheme.radiusMedium),
+                          border: Border.all(
+                            color: selected ? color : CCTTTheme.neutral300,
+                            width: selected ? 2 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              CCTTTheme.typeIcon(t),
+                              size: 22,
+                              color: selected ? color : CCTTTheme.neutral500,
+                            ),
+                            const SizedBox(height: CCTTTheme.space1 + 2),
+                            Text(
+                              CCTTTheme.typeLabel(t),
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: selected
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                color:
+                                    selected ? color : CCTTTheme.neutral700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+
+            const SizedBox(height: CCTTTheme.space4),
+            _fieldLabel('目标仓库'),
+            DropdownButtonFormField<String>(
+              initialValue: _selectedWarehouseId,
               isExpanded: true,
-              decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 10)),
-              hint: const Text('选择仓库'),
-              items: _warehouses.map((w) => DropdownMenuItem(value: w.id, child: Text(w.name, overflow: TextOverflow.ellipsis))).toList(),
+              decoration: const InputDecoration(
+                hintText: '选择仓库',
+                prefixIcon: Icon(Icons.warehouse_outlined, size: 20),
+              ),
+              items: _warehouses
+                  .map((w) => DropdownMenuItem(
+                        value: w.id,
+                        child: Text(w.name, overflow: TextOverflow.ellipsis),
+                      ))
+                  .toList(),
               onChanged: (v) => setState(() => _selectedWarehouseId = v),
-            )),
-          ]))),
-          const SizedBox(height: 12),
-          // 日期
-          Card(child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [
-            const Text('日期', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-            const Spacer(),
-            TextButton.icon(
-              icon: const Icon(Icons.edit_calendar, size: 18),
-              label: Text('${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}',
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-              onPressed: () async {
+            ),
+
+            const SizedBox(height: CCTTTheme.space4),
+            _fieldLabel('日期'),
+            InkWell(
+              onTap: () async {
                 final picked = await showDatePicker(
-                  context: context, initialDate: _selectedDate, firstDate: DateTime(2020), lastDate: DateTime.now(),
-                  builder: (context, child) => Localizations.override(context: context, locale: const Locale('zh'), child: child!),
+                  context: context,
+                  initialDate: _selectedDate,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime.now(),
+                  builder: (context, child) => Localizations.override(
+                    context: context,
+                    locale: const Locale('zh'),
+                    child: child!,
+                  ),
                 );
                 if (picked != null) setState(() => _selectedDate = picked);
               },
-            ),
-          ]))),
-          const SizedBox(height: 12),
-          // 类型
-          Card(child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [
-            const Text('类型', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-            const Spacer(),
-            ...MovementType.values.map((t) => Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: ChoiceChip(
-                label: Text(_typeLabel(t), style: TextStyle(fontSize: 12)),
-                visualDensity: VisualDensity.compact,
-                selected: _selectedType == t,
-                selectedColor: _typeColor(t),
-                onSelected: (_) => setState(() => _selectedType = t),
+              borderRadius: BorderRadius.circular(CCTTTheme.radiusMedium),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: CCTTTheme.space3,
+                  vertical: CCTTTheme.space3 + 2,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(CCTTTheme.radiusMedium),
+                  border: Border.all(color: CCTTTheme.neutral300),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.event_outlined,
+                      size: 20,
+                      color: CCTTTheme.neutral700,
+                    ),
+                    const SizedBox(width: CCTTTheme.space3),
+                    Text(
+                      '${_selectedDate.year}-'
+                      '${_selectedDate.month.toString().padLeft(2, '0')}-'
+                      '${_selectedDate.day.toString().padLeft(2, '0')}',
+                      style: CCTTTheme.numeric(size: 15),
+                    ),
+                    const Spacer(),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 20,
+                      color: CCTTTheme.neutral500,
+                    ),
+                  ],
+                ),
               ),
-            )),
-          ]))),
-          const SizedBox(height: 12),
-          // 客户
-          Card(child: Padding(padding: const EdgeInsets.all(12), child: TextFormField(
-            controller: _partnerController,
-            decoration: const InputDecoration(labelText: '客户名称', hintText: '客户/供应商名称', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person)),
-          ))),
-          const SizedBox(height: 12),
-          // ══════ OCR 拍照识别 ══════
-          Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              const Icon(Icons.document_scanner, color: Colors.teal),
-              const SizedBox(width: 8),
-              const Text('OCR 拍照识别', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              const Spacer(),
-              if (_ocrResultCount > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.green)),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.check, size: 14, color: Colors.green), const SizedBox(width: 4),
-                    Text('已识别 $_ocrResultCount 项', style: const TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.w600)),
-                  ]),
-                ),
-            ]),
-            const SizedBox(height: 4),
-            Text('拍照上传手写单据，自动识别客户和货物明细', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-            const SizedBox(height: 10),
-            if (_isOcrLoading)
-              const Center(child: Padding(padding: EdgeInsets.all(12), child: Row(mainAxisSize: MainAxisSize.min, children: [
-                SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                SizedBox(width: 12),
-                Text('正在识别...', style: TextStyle(color: Colors.grey)),
-              ])))
-            else
-              Row(children: [
+            ),
+
+            const SizedBox(height: CCTTTheme.space4),
+            _fieldLabel('客户名称'),
+            TextFormField(
+              controller: _partnerController,
+              decoration: const InputDecoration(
+                hintText: '客户 / 供应商名称',
+                prefixIcon: Icon(Icons.person_outline, size: 20),
+              ),
+            ),
+
+            const SizedBox(height: CCTTTheme.space4),
+            _fieldLabel('备注', optional: true),
+            TextFormField(
+              controller: _remarkController,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                hintText: '需要记一笔的其他信息',
+              ),
+            ),
+
+            const CCTTSectionLabel(label: '结清状态'),
+            Row(
+              children: [
                 Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _takePhotoForOcr,
-                    icon: const Icon(Icons.camera_alt, size: 16),
-                    label: const Text('拍照', style: TextStyle(fontSize: 13)),
+                  child: _settleOption(
+                    label: '未结清',
+                    color: CCTTTheme.statusPending,
+                    selected: !_isSettled,
+                    onTap: () => setState(() => _isSettled = false),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: CCTTTheme.space2),
                 Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _pickFromGalleryForOcr,
-                    icon: const Icon(Icons.photo_library, size: 16),
-                    label: const Text('相册', style: TextStyle(fontSize: 13)),
+                  child: _settleOption(
+                    label: '已结清',
+                    color: CCTTTheme.statusSynced,
+                    selected: _isSettled,
+                    onTap: _confirmSettled,
                   ),
                 ),
-              ]),
-          ]))),
-          const SizedBox(height: 12),
-          // 备注 + 结清
-          Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
-            TextFormField(controller: _remarkController, decoration: const InputDecoration(labelText: '备注', hintText: '可选', border: OutlineInputBorder(), prefixIcon: Icon(Icons.notes)), maxLines: 2),
-            const SizedBox(height: 8),
-            Row(children: [
-              const Text('结清', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              const Spacer(),
-              ChoiceChip(label: Text('未结清', style: TextStyle(color: _isSettled ? null : Colors.orange.shade800, fontWeight: _isSettled ? FontWeight.normal : FontWeight.bold)), selected: !_isSettled, selectedColor: Colors.orange.shade100, onSelected: (_) => setState(() => _isSettled = false)),
-              const SizedBox(width: 6),
-              ChoiceChip(label: Text('已结清', style: TextStyle(color: _isSettled ? Colors.green.shade800 : null, fontWeight: _isSettled ? FontWeight.bold : FontWeight.normal)), selected: _isSettled, selectedColor: Colors.green.shade100, onSelected: (_) async {
-                final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('确认结清'), content: const Text('确认已结清？'), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')), TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确认'))]));
-                if (ok == true && mounted) setState(() => _isSettled = true);
-              }),
-            ]),
-          ]))),
-          const SizedBox(height: 20),
-          // 保存
-          SizedBox(height: 48, child: ElevatedButton.icon(
-            onPressed: (_isSaving || !hasWarehouse) ? null : _save,
-            icon: _isSaving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.arrow_forward),
-            label: const Text('下一步：添加货物明细'),
-          )),
-        ]),
+              ],
+            ),
+            if (_isSettled)
+              const Padding(
+                padding: EdgeInsets.only(top: CCTTTheme.space2),
+                child: Text(
+                  '结清之后不能改回未结清',
+                  style: TextStyle(fontSize: 12, color: CCTTTheme.neutral700),
+                ),
+              ),
+
+            const SizedBox(height: CCTTTheme.space8),
+            CCTTPrimaryButton(
+              label: '下一步：添加货物明细',
+              icon: Icons.arrow_forward,
+              isLoading: _isSaving,
+              onPressed: hasWarehouse ? _save : null,
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  /// 表单标签放在输入框外面而不是用 floatingLabel：
+  /// 填到一半时标签还在原位，不会因为聚焦而缩到边框上。
+  Widget _fieldLabel(String text, {bool optional = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: CCTTTheme.space2),
+      child: Row(
+        children: [
+          Text(
+            text,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: CCTTTheme.neutral700,
+            ),
+          ),
+          if (optional) ...[
+            const SizedBox(width: CCTTTheme.space1 + 2),
+            const Text(
+              '选填',
+              style: TextStyle(fontSize: 12, color: CCTTTheme.neutral500),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _settleOption({
+    required String label,
+    required Color color,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(CCTTTheme.radiusMedium),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: CCTTTheme.space3),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.1) : Colors.white,
+          borderRadius: BorderRadius.circular(CCTTTheme.radiusMedium),
+          border: Border.all(
+            color: selected ? color : CCTTTheme.neutral300,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: selected ? color : CCTTTheme.neutral700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 结清不可逆，所以要一次确认。文案直接说清后果，而不是问「确认吗」。
+  Future<void> _confirmSettled() async {
+    if (_isSettled) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('标记为已结清？'),
+        content: const Text('结清之后这张单据不能再改回未结清。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确认结清'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) setState(() => _isSettled = true);
   }
 }
 
