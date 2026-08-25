@@ -96,17 +96,21 @@ jobs:
       env:
         SERVER_HOST: ${{ secrets.SERVER_HOST }}
         SERVER_USER: ${{ secrets.SERVER_USER }}
-        SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+        SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
         VERSION_NAME: ${{ steps.version.outputs.version_name }}
         VERSION_CODE: ${{ steps.version.outputs.version_code }}
       run: |
-        # 安装sshpass用于密码认证
-        sudo apt-get update
-        sudo apt-get install -y sshpass
+        # 配置SSH密钥
+        mkdir -p ~/.ssh
+        echo "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+
+        # 添加服务器到known_hosts
+        ssh-keyscan -H $SERVER_HOST >> ~/.ssh/known_hosts
 
         # 上传APK到服务器
         cd build/app/outputs/flutter-apk/
-        sshpass -p "$SERVER_PASSWORD" scp -o StrictHostKeyChecking=no \
+        scp -i ~/.ssh/deploy_key \
           cctt-v${VERSION_NAME}-arm64.apk \
           ${SERVER_USER}@${SERVER_HOST}:/opt/CCTT/admin/downloads/cctt-v${VERSION_NAME}.apk
 
@@ -114,10 +118,11 @@ jobs:
         FILE_SIZE=$(stat -c%s "cctt-v${VERSION_NAME}-arm64.apk")
 
         # 获取更新日志（从最近的commit messages）
-        CHANGELOG=$(git log --pretty=format:"- %s" -10 | sed 's/"/\\"/g' | awk '{printf "%s\\n", $0}')
+        cd ../../../../
+        CHANGELOG=$(git log --pretty=format:"- %s" -5 | sed 's/"/\\"/g' | tr '\n' ' ')
 
         # 调用服务器API更新版本信息
-        sshpass -p "$SERVER_PASSWORD" ssh -o StrictHostKeyChecking=no \
+        ssh -i ~/.ssh/deploy_key \
           ${SERVER_USER}@${SERVER_HOST} \
           "curl -X POST http://localhost:3456/api/version/update \
             -H 'Content-Type: application/json' \
@@ -130,3 +135,6 @@ jobs:
               \"forceUpdate\": false,
               \"minVersion\": 1
             }'"
+
+        # 清理密钥
+        rm -f ~/.ssh/deploy_key
