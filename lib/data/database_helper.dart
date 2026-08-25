@@ -11,7 +11,7 @@ import '../models/warehouse.dart';
 /// 支持多仓库库存管理，严格遵循 Offline-First 原则。
 class DatabaseHelper {
   static const String _databaseName = 'cctt_database.db';
-  static const int _databaseVersion = 10; // v10: 仅保留 Order 新数据，清空旧流水数据
+  static const int _databaseVersion = 11; // v11: 新增 itemNumber, pieceNumber, itemRemark 字段
 
   // 表名
   static const String _warehousesTable = 'warehouses';
@@ -131,6 +131,13 @@ class DatabaseHelper {
       // v2.0 起只使用 Order 新数据；旧 StockMovement 行不再迁移或展示。
       await db.delete(_movementsTable);
     }
+
+    if (oldVersion < 11) {
+      // v10 → v11：新增表单字段 itemNumber(编号), pieceNumber(件号), itemRemark(明细备注)
+      await db.execute('ALTER TABLE $_orderItemsTable ADD COLUMN itemNumber INTEGER');
+      await db.execute('ALTER TABLE $_orderItemsTable ADD COLUMN pieceNumber TEXT');
+      await db.execute('ALTER TABLE $_orderItemsTable ADD COLUMN itemRemark TEXT');
+    }
   }
 
   /// 创建仓库表
@@ -202,7 +209,7 @@ class DatabaseHelper {
         'CREATE INDEX IF NOT EXISTS idx_orders_sync ON $_ordersTable(syncStatus)');
   }
 
-  /// 创建 order_items 表（v9）
+  /// 创建 order_items 表（v11）
   Future<void> _createOrderItemsTable(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $_orderItemsTable (
@@ -217,6 +224,9 @@ class DatabaseHelper {
         deliveryPerson TEXT,
         imagePath TEXT,
         sortOrder INTEGER DEFAULT 0,
+        itemNumber INTEGER,
+        pieceNumber TEXT,
+        itemRemark TEXT,
         FOREIGN KEY (orderId) REFERENCES $_ordersTable(id) ON DELETE CASCADE
       )
     ''');

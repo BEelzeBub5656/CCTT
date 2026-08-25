@@ -31,6 +31,10 @@ app.use('/api/movements', require('./routes/movements'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/sync', require('./routes/sync'));
+app.use('/api/version', require('./routes/version'));
+
+// APK文件下载路由
+app.use('/downloads', express.static(path.join(__dirname, '..', 'downloads')));
 
 // SPA fallback — 所有非 API 路由返回 index.html
 app.get('*', (req, res) => {

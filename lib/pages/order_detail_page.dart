@@ -284,7 +284,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                       decoration: BoxDecoration(
                           color: Colors.teal.shade100,
                           borderRadius: BorderRadius.circular(14)),
-                      child: Text('${e.key + 1}',
+                      child: Text('${it.itemNumber ?? e.key + 1}',
                           style: TextStyle(
                               color: Colors.teal.shade800,
                               fontSize: 12,
@@ -295,7 +295,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                       child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(it.itemName,
+                            Text('${it.itemName}${it.pieceNumber != null ? ' [${it.pieceNumber}]' : ''}',
                                 style: const TextStyle(
                                     fontSize: 15, fontWeight: FontWeight.w600)),
                             const SizedBox(height: 2),
@@ -310,6 +310,10 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                                       fontSize: 11, color: Colors.grey)),
                             if (it.deliveryPerson != null)
                               Text('送货人：${it.deliveryPerson}',
+                                  style: const TextStyle(
+                                      fontSize: 11, color: Colors.grey)),
+                            if (it.itemRemark != null)
+                              Text('备注：${it.itemRemark}',
                                   style: const TextStyle(
                                       fontSize: 11, color: Colors.grey)),
                           ]),
@@ -378,6 +382,10 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             _buildInfoRow(
                 label: '额外费用',
                 value: '¥${_detail!.totalFeeAmount.toStringAsFixed(2)}'),
+          if (_detail!.totalPiecesCount > 0)
+            _buildInfoRow(
+                label: '总计件数',
+                value: '${_detail!.totalPiecesCount} 件'),
           const Divider(height: 24),
           _buildInfoRow(
               label: '单据总计',
@@ -591,6 +599,10 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (item.itemNumber != null)
+                      _dialogRow('编号', '${item.itemNumber}'),
+                    if (item.pieceNumber != null)
+                      _dialogRow('件号', item.pieceNumber!),
                     _dialogRow('净重', '${item.quantity.toStringAsFixed(1)} kg'),
                     _dialogRow(
                         '单价', '¥${item.unitPrice.toStringAsFixed(2)} / 吨'),
@@ -608,6 +620,8 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                       _dialogRow('件数', '${item.totalPieces} 件'),
                     if (item.deliveryPerson != null)
                       _dialogRow('送货人', item.deliveryPerson!),
+                    if (item.itemRemark != null)
+                      _dialogRow('备注', item.itemRemark!),
                   ]),
               actions: [
                 TextButton(

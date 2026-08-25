@@ -33,6 +33,8 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
   final _tareWeightController = TextEditingController(text: '0');
   final _totalPiecesController = TextEditingController();
   final _deliveryPersonController = TextEditingController();
+  final _pieceNumberController = TextEditingController();
+  final _itemRemarkController = TextEditingController();
   final _feeNameController = TextEditingController();
   final _feeAmountController = TextEditingController();
   final _feeRemarkController = TextEditingController();
@@ -95,6 +97,13 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
           : _deliveryPersonController.text.trim(),
       imagePath: _capturedImagePath,
       sortOrder: _items.length,
+      itemNumber: _items.length + 1,
+      pieceNumber: _pieceNumberController.text.trim().isEmpty
+          ? null
+          : _pieceNumberController.text.trim(),
+      itemRemark: _itemRemarkController.text.trim().isEmpty
+          ? null
+          : _itemRemarkController.text.trim(),
     );
 
     setState(() {
@@ -106,6 +115,8 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
       _tareWeightController.text = '0';
       _totalPiecesController.clear();
       _deliveryPersonController.clear();
+      _pieceNumberController.clear();
+      _itemRemarkController.clear();
       _capturedImagePath = null;
       _showGrossWeight = false;
     });
@@ -251,6 +262,8 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
     _tareWeightController.dispose();
     _totalPiecesController.dispose();
     _deliveryPersonController.dispose();
+    _pieceNumberController.dispose();
+    _itemRemarkController.dispose();
     _feeNameController.dispose();
     _feeAmountController.dispose();
     _feeRemarkController.dispose();
@@ -326,10 +339,18 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
           const SizedBox(height: 8),
           ..._items.asMap().entries.map((e) => Card(
                 child: ListTile(
-                  leading: CircleAvatar(child: Text('${e.key + 1}')),
-                  title: Text(e.value.itemName),
-                  subtitle: Text(
-                      '净${e.value.quantity.toStringAsFixed(1)}kg × ¥${e.value.unitPrice.toStringAsFixed(2)}/吨 = ¥${e.value.amount.toStringAsFixed(2)}'),
+                  leading: CircleAvatar(child: Text('${e.value.itemNumber ?? e.key + 1}')),
+                  title: Text('${e.value.itemName}${e.value.pieceNumber != null ? ' [${e.value.pieceNumber}]' : ''}'),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                          '净${e.value.quantity.toStringAsFixed(1)}kg × ¥${e.value.unitPrice.toStringAsFixed(2)}/吨 = ¥${e.value.amount.toStringAsFixed(2)}'),
+                      if (e.value.itemRemark != null)
+                        Text('备注: ${e.value.itemRemark}',
+                            style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    ],
+                  ),
                   trailing: IconButton(
                       icon: const Icon(Icons.delete, color: Colors.red),
                       onPressed: () => _deleteItem(e.key)),
@@ -429,6 +450,20 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
                                   border: OutlineInputBorder(),
                                   isDense: true))),
                     ]),
+                    const SizedBox(height: 8),
+                    TextField(
+                        controller: _pieceNumberController,
+                        decoration: const InputDecoration(
+                            labelText: '件号',
+                            border: OutlineInputBorder(),
+                            isDense: true)),
+                    const SizedBox(height: 8),
+                    TextField(
+                        controller: _itemRemarkController,
+                        decoration: const InputDecoration(
+                            labelText: '明细备注',
+                            border: OutlineInputBorder(),
+                            isDense: true)),
                     const SizedBox(height: 8),
                     TextButton(
                         onPressed: () => setState(

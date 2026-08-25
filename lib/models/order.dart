@@ -101,6 +101,9 @@ class OrderItem {
   final String? deliveryPerson;
   final String? imagePath;
   final int sortOrder;
+  final int? itemNumber;
+  final String? pieceNumber;
+  final String? itemRemark;
 
   OrderItem({
     String? id,
@@ -114,6 +117,9 @@ class OrderItem {
     this.deliveryPerson,
     this.imagePath,
     this.sortOrder = 0,
+    this.itemNumber,
+    this.pieceNumber,
+    this.itemRemark,
   }) : id = id ?? const Uuid().v4();
 
   double get amount => (quantity / 1000) * unitPrice;
@@ -131,6 +137,9 @@ class OrderItem {
         'deliveryPerson': deliveryPerson,
         'imagePath': imagePath,
         'sortOrder': sortOrder,
+        'itemNumber': itemNumber,
+        'pieceNumber': pieceNumber,
+        'itemRemark': itemRemark,
       };
 
   factory OrderItem.fromJson(Map<String, dynamic> json) => OrderItem(
@@ -145,12 +154,16 @@ class OrderItem {
         deliveryPerson: json['deliveryPerson'] as String?,
         imagePath: json['imagePath'] as String?,
         sortOrder: (json['sortOrder'] as int?) ?? 0,
+        itemNumber: json['itemNumber'] as int?,
+        pieceNumber: json['pieceNumber'] as String?,
+        itemRemark: json['itemRemark'] as String?,
       );
 
   OrderItem copyWith({
     String? id, String? orderId, String? itemName, double? quantity,
     double? unitPrice, double? grossWeight, double? tareWeight,
     int? totalPieces, String? deliveryPerson, String? imagePath, int? sortOrder,
+    int? itemNumber, String? pieceNumber, String? itemRemark,
   }) =>
       OrderItem(
         id: id ?? this.id, orderId: orderId ?? this.orderId,
@@ -159,6 +172,8 @@ class OrderItem {
         tareWeight: tareWeight ?? this.tareWeight, totalPieces: totalPieces ?? this.totalPieces,
         deliveryPerson: deliveryPerson ?? this.deliveryPerson,
         imagePath: imagePath ?? this.imagePath, sortOrder: sortOrder ?? this.sortOrder,
+        itemNumber: itemNumber ?? this.itemNumber, pieceNumber: pieceNumber ?? this.pieceNumber,
+        itemRemark: itemRemark ?? this.itemRemark,
       );
 }
 
@@ -222,4 +237,5 @@ class OrderDetail {
   double get totalItemAmount => items.fold(0.0, (s, i) => s + i.amount);
   double get totalFeeAmount => fees.fold(0.0, (s, f) => s + f.amount);
   double get totalAmount => totalItemAmount + totalFeeAmount;
+  int get totalPiecesCount => items.fold(0, (s, i) => s + (i.totalPieces ?? 0));
 }

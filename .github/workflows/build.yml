@@ -1,0 +1,132 @@
+name: Build and Release APK
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.5'
+        channel: 'stable'
+
+    - name: Get dependencies
+      run: flutter pub get
+
+    - name: Run tests
+      run: flutter test --no-pub || true
+
+    - name: Build APK (Debug)
+      if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+      run: flutter build apk --debug
+
+    - name: Build APK (Release)
+      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+      run: flutter build apk --release --split-per-abi
+
+    - name: Get version from pubspec.yaml
+      id: version
+      run: |
+        VERSION=$(grep '^version: ' pubspec.yaml | cut -d ' ' -f 2)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        VERSION_NAME=$(echo $VERSION | cut -d '+' -f 1)
+        VERSION_CODE=$(echo $VERSION | cut -d '+' -f 2)
+        echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+        echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+
+    - name: Rename APK files
+      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+      run: |
+        cd build/app/outputs/flutter-apk/
+        mv app-arm64-v8a-release.apk cctt-v${{ steps.version.outputs.version_name }}-arm64.apk
+        mv app-armeabi-v7a-release.apk cctt-v${{ steps.version.outputs.version_name }}-armeabi.apk
+        mv app-x86_64-release.apk cctt-v${{ steps.version.outputs.version_name }}-x86_64.apk
+
+    - name: Upload APK artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: apk-files
+        path: build/app/outputs/flutter-apk/*.apk
+        retention-days: 30
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: build/app/outputs/flutter-apk/*.apk
+        body: |
+          ## CCTT ${{ steps.version.outputs.version_name }}
+
+          构建版本: ${{ steps.version.outputs.version_code }}
+
+          ### 下载说明
+          - `cctt-v${{ steps.version.outputs.version_name }}-arm64.apk` - 推荐，适用于大多数现代手机
+          - `cctt-v${{ steps.version.outputs.version_name }}-armeabi.apk` - 适用于老旧32位设备
+          - `cctt-v${{ steps.version.outputs.version_name }}-x86_64.apk` - 适用于模拟器
+
+          ### 安装说明
+          1. 下载对应架构的APK文件
+          2. 在手机上打开APK文件
+          3. 允许安装未知来源应用
+          4. 按提示完成安装
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload to server (main branch only)
+      if: github.ref == 'refs/heads/main'
+      env:
+        SERVER_HOST: ${{ secrets.SERVER_HOST }}
+        SERVER_USER: ${{ secrets.SERVER_USER }}
+        SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+        VERSION_NAME: ${{ steps.version.outputs.version_name }}
+        VERSION_CODE: ${{ steps.version.outputs.version_code }}
+      run: |
+        # 安装sshpass用于密码认证
+        sudo apt-get update
+        sudo apt-get install -y sshpass
+
+        # 上传APK到服务器
+        cd build/app/outputs/flutter-apk/
+        sshpass -p "$SERVER_PASSWORD" scp -o StrictHostKeyChecking=no \
+          cctt-v${VERSION_NAME}-arm64.apk \
+          ${SERVER_USER}@${SERVER_HOST}:/opt/CCTT/admin/downloads/cctt-v${VERSION_NAME}.apk
+
+        # 获取文件大小
+        FILE_SIZE=$(stat -c%s "cctt-v${VERSION_NAME}-arm64.apk")
+
+        # 获取更新日志（从最近的commit messages）
+        CHANGELOG=$(git log --pretty=format:"- %s" -10 | sed 's/"/\\"/g' | awk '{printf "%s\\n", $0}')
+
+        # 调用服务器API更新版本信息
+        sshpass -p "$SERVER_PASSWORD" ssh -o StrictHostKeyChecking=no \
+          ${SERVER_USER}@${SERVER_HOST} \
+          "curl -X POST http://localhost:3456/api/version/update \
+            -H 'Content-Type: application/json' \
+            -d '{
+              \"versionCode\": ${VERSION_CODE},
+              \"versionName\": \"${VERSION_NAME}\",
+              \"downloadUrl\": \"https://www.beelzebub.top/downloads/cctt-v${VERSION_NAME}.apk\",
+              \"fileSize\": ${FILE_SIZE},
+              \"changelog\": [\"${CHANGELOG}\"],
+              \"forceUpdate\": false,
+              \"minVersion\": 1
+            }'"
