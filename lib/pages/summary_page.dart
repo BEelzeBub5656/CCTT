@@ -26,8 +26,11 @@ class _SummaryPageState extends State<SummaryPage> {
   void initState() {
     super.initState();
     final now = DateTime.now();
-    _startDate = DateTime(now.year, now.month);
-    _endDate = DateTime(now.year, now.month, now.day);
+    _startDate = DateTime(now.year, 1, 1);
+    _endDate = DateTime(now.year, 12, 31);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _generateReport();
+    });
   }
 
   Future<void> _pickDate({required bool isStart}) async {
@@ -50,6 +53,7 @@ class _SummaryPageState extends State<SummaryPage> {
       _report = null;
       _errorMessage = null;
     });
+    await _generateReport();
   }
 
   Future<void> _generateReport() async {
@@ -84,13 +88,13 @@ class _SummaryPageState extends State<SummaryPage> {
       if (!mounted) return;
       final now = DateTime.now();
       setState(() {
-        _startDate = DateTime(now.year, now.month);
-        _endDate = DateTime(now.year, now.month, now.day);
+        _startDate = DateTime(now.year, 1, 1);
+        _endDate = DateTime(now.year, 12, 31);
       });
       await _generateReport();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已写入 $count 张测试单据，并重新生成本月汇总')),
+        SnackBar(content: Text('已写入 $count 张测试单据，并重新生成本年度汇总')),
       );
     } catch (error) {
       if (!mounted) return;
@@ -128,28 +132,13 @@ class _SummaryPageState extends State<SummaryPage> {
       appBar: AppBar(title: const Text('汇总表')),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
           children: [
             _buildDateRangeCard(),
             if (kDebugMode) ...[
               const SizedBox(height: 12),
               _buildDebugDataCard(),
             ],
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _isGenerating ? null : _generateReport,
-              icon: _isGenerating
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.summarize_outlined),
-              label: Text(_isGenerating ? '正在生成...' : '生成汇总表'),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-              ),
-            ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
               Text(
@@ -157,19 +146,12 @@ class _SummaryPageState extends State<SummaryPage> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
-            if (_report == null && !_isGenerating && _errorMessage == null) ...[
-              const SizedBox(height: 48),
-              const Icon(Icons.date_range_outlined,
-                  size: 56, color: Colors.grey),
-              const SizedBox(height: 12),
-              const Text(
-                '选择起止日期后生成汇总表\n作废单据不会计入统计',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey, height: 1.6),
-              ),
+            if (_report == null && _isGenerating) ...[
+              const SizedBox(height: 56),
+              const Center(child: CircularProgressIndicator()),
             ],
             if (_report != null) ...[
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
               _buildReport(_report!),
             ],
           ],
@@ -236,46 +218,43 @@ class _SummaryPageState extends State<SummaryPage> {
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+        child: Row(
           children: [
-            const Row(
-              children: [
-                Icon(Icons.calendar_month_outlined, size: 20),
-                SizedBox(width: 8),
-                Text('统计日期', style: TextStyle(fontWeight: FontWeight.bold)),
-              ],
+            const Tooltip(
+              message: '统计日期（作废单据不计入）',
+              child: Icon(Icons.calendar_month_outlined, size: 20),
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildDateButton(
-                    label: '开始日期',
-                    date: _startDate,
-                    onPressed: () => _pickDate(isStart: true),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8),
-                  child: Icon(Icons.arrow_forward, size: 18),
-                ),
-                Expanded(
-                  child: _buildDateButton(
-                    label: '结束日期',
-                    date: _endDate,
-                    onPressed: () => _pickDate(isStart: false),
-                  ),
-                ),
-              ],
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildDateButton(
+                label: '起',
+                date: _startDate,
+                onPressed: () => _pickDate(isStart: true),
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              '起止日期均计入统计',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Text('—', style: TextStyle(color: Colors.grey)),
+            ),
+            Expanded(
+              child: _buildDateButton(
+                label: '止',
+                date: _endDate,
+                onPressed: () => _pickDate(isStart: false),
+              ),
+            ),
+            IconButton(
+              tooltip: '刷新汇总',
+              visualDensity: VisualDensity.compact,
+              onPressed: _isGenerating ? null : _generateReport,
+              icon: _isGenerating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh, size: 21),
             ),
           ],
         ),
@@ -291,17 +270,25 @@ class _SummaryPageState extends State<SummaryPage> {
     return OutlinedButton(
       onPressed: onPressed,
       style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
+        minimumSize: const Size(0, 36),
+        visualDensity: VisualDensity.compact,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(label, style: Theme.of(context).textTheme.labelSmall),
-          const SizedBox(height: 3),
-          Text(
-            _dateText(date),
-            style: const TextStyle(fontWeight: FontWeight.w600),
+          Text('$label ', style: Theme.of(context).textTheme.labelSmall),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                _dateText(date),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -313,9 +300,13 @@ class _SummaryPageState extends State<SummaryPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '${_dateText(report.startDate)} 至 ${_dateText(report.endDate)}',
+          _isFullYear(report)
+              ? '${report.startDate.year} 年全部数据汇总'
+              : '${_dateText(report.startDate)} 至 ${_dateText(report.endDate)}',
           textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleSmall,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
         ),
         const SizedBox(height: 12),
         _buildSummarySection(
@@ -339,6 +330,13 @@ class _SummaryPageState extends State<SummaryPage> {
       ],
     );
   }
+
+  bool _isFullYear(SummaryReport report) =>
+      report.startDate.month == 1 &&
+      report.startDate.day == 1 &&
+      report.endDate.year == report.startDate.year &&
+      report.endDate.month == 12 &&
+      report.endDate.day == 31;
 
   Widget _buildSummarySection({
     required String title,
