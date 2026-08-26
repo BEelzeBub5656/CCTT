@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'pages/home_page.dart';
-import 'theme/app_theme.dart';
 
 void main() {
   runApp(const CcttApp());
@@ -25,7 +24,10 @@ class CcttApp extends StatelessWidget {
         Locale('zh', 'CN'),
         Locale('en', 'US'),
       ],
-      theme: CCTTTheme.lightTheme,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+        useMaterial3: true,
+      ),
       home: const HomePage(),
     );
   }

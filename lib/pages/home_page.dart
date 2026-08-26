@@ -1,13 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../data/database_helper.dart';
 import '../models/order.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 import '../services/sync_service.dart';
-import '../theme/app_theme.dart';
-import '../widgets/cctt_components.dart';
 import '../widgets/update_dialog.dart';
 import 'add_order_page.dart';
 import 'order_detail_page.dart';
@@ -25,7 +22,6 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final _amountFormat = NumberFormat('#,##0.00');
   List<OrderDetail> _orders = [];
   List<Warehouse> _warehouses = [];
   bool _isLoading = true;
@@ -426,453 +422,191 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filteredOrders;
-    // 上传待推送 + 云端有新数据，合并成一个同步入口：
-    // 用户心里只有「同不同步」一件事，不该在标题栏里区分推和拉。
-    final syncBadgeCount = _unpushedCount + _cloudNewCount;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CCTT 库存'),
+        title: const Text('CCTT 库存管理'),
         actions: [
           IconButton(
-            icon: Icon(
-              Icons.search,
-              color: _searchKeyword.isNotEmpty
-                  ? CCTTTheme.accentOrange
-                  : Colors.white,
-            ),
-            tooltip: '查询单据',
-            onPressed: _showSearchDialog,
+            icon: _unpushedCount > 0
+                ? Badge(
+                    label: Text('$_unpushedCount'),
+                    child: const Icon(Icons.cloud_upload),
+                  )
+                : const Icon(Icons.cloud_upload),
+            tooltip:
+                _unpushedCount > 0 ? '推送到云端（$_unpushedCount 张待推送）' : '推送到云端',
+            onPressed: _syncRecords,
           ),
           IconButton(
-            icon: syncBadgeCount > 0
+            icon: _cloudNewCount > 0
                 ? Badge(
-                    label: Text('$syncBadgeCount'),
-                    backgroundColor: CCTTTheme.accentOrange,
-                    textColor: Colors.white,
-                    child: const Icon(Icons.sync),
+                    label: Text('$_cloudNewCount'),
+                    backgroundColor: Colors.teal,
+                    child: const Icon(Icons.cloud_download),
                   )
-                : Icon(
-                    _cloudChecked ? Icons.cloud_done_outlined : Icons.sync,
-                    color: _cloudChecked
-                        ? CCTTTheme.statusSynced
-                        : Colors.white,
-                  ),
-            tooltip: syncBadgeCount > 0
-                ? '同步（$_unpushedCount 张待推送 · $_cloudNewCount 张待拉取）'
                 : _cloudChecked
-                    ? '已是最新'
-                    : '与云端同步',
-            onPressed: _showSyncSheet,
+                    ? const Icon(Icons.cloud_download, color: Colors.green)
+                    : const Icon(Icons.cloud_download),
+            tooltip: _cloudNewCount > 0
+                ? '从云端拉取（$_cloudNewCount 张新单据）'
+                : _cloudChecked
+                    ? '云端已同步，暂无新数据'
+                    : '从云端拉取快照',
+            onPressed: _pullSnapshot,
           ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            tooltip: '更多',
-            position: PopupMenuPosition.under,
-            onSelected: (value) {
-              switch (value) {
-                case 'summary':
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SummaryPage()),
-                  );
-                case 'voided':
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => _DeletedOrdersPage(
-                        orders:
-                            _orders.where((o) => o.order.isDeleted).toList(),
-                        warehouseName: _warehouseName,
-                      ),
-                    ),
-                  );
-                case 'warehouse':
-                  _showAddWarehouseDialog();
-                case 'refresh':
-                  _onRefresh();
-                case 'settings':
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SettingsPage()),
-                  );
-              }
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: '刷新列表',
+            onPressed: _onRefresh,
+          ),
+          IconButton(
+            icon: const Icon(Icons.analytics_outlined),
+            tooltip: '汇总表',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SummaryPage()),
+              );
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'summary',
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.analytics_outlined),
-                  title: Text('汇总表'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_sweep),
+            tooltip: '已作废单据',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => _DeletedOrdersPage(
+                    orders: _orders.where((o) => o.order.isDeleted).toList(),
+                    warehouseName: _warehouseName,
+                  ),
                 ),
-              ),
-              PopupMenuItem(
-                value: 'voided',
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.delete_sweep_outlined),
-                  title: Text('已作废单据'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'warehouse',
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.add_business_outlined),
-                  title: Text('添加仓库'),
-                ),
-              ),
-              PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'refresh',
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.refresh),
-                  title: Text('刷新列表'),
-                ),
-              ),
-              PopupMenuItem(
-                value: 'settings',
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.settings_outlined),
-                  title: Text('设置'),
-                ),
-              ),
-            ],
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: '设置',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
+              );
+            },
           ),
         ],
       ),
       body: Column(
         children: [
-          _buildWarehouseFilterBar(),
-          if (_searchKeyword.isNotEmpty) _buildSearchBanner(),
+          // ───────────── 仓库筛选栏 ─────────────
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).dividerColor,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.filter_list, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: PopupMenuButton<String?>(
+                    padding: EdgeInsets.zero,
+                    offset: const Offset(0, 40),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _selectedWarehouseId == null
+                            ? '所有仓库（${_orders.where((o) => !o.order.isDeleted).length}）'
+                            : '${_warehouseName(_selectedWarehouseId!)}（${_orders.where((o) => !o.order.isDeleted && o.order.warehouseId == _selectedWarehouseId).length}）',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    onSelected: (value) {
+                      if (mounted) setState(() => _selectedWarehouseId = value);
+                    },
+                    itemBuilder: (_) {
+                      final totalActive =
+                          _orders.where((o) => !o.order.isDeleted).length;
+                      return [
+                        PopupMenuItem<String?>(
+                          value: null,
+                          child: Text('所有仓库（$totalActive）',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                        ..._warehouses.map((w) {
+                          final count = _orders
+                              .where((o) =>
+                                  !o.order.isDeleted &&
+                                  o.order.warehouseId == w.id)
+                              .length;
+                          return PopupMenuItem<String?>(
+                            value: w.id,
+                            child: Text('${w.name}（$count）'),
+                          );
+                        }),
+                      ];
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.add_business),
+                  tooltip: '添加仓库',
+                  onPressed: _showAddWarehouseDialog,
+                ),
+              ],
+            ),
+          ),
+
+          // ───────────── 列表区域 ─────────────
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : RefreshIndicator(
                     onRefresh: _onRefresh,
-                    color: CCTTTheme.accentOrange,
                     child: filtered.isEmpty
                         ? _buildEmptyState()
                         : ListView.builder(
-                            padding: const EdgeInsets.fromLTRB(
-                              CCTTTheme.space3,
-                              CCTTTheme.space3,
-                              CCTTTheme.space3,
-                              CCTTTheme.space4,
-                            ),
                             itemCount: filtered.length,
                             itemBuilder: (context, index) {
-                              final d = filtered[index];
-                              return OrderCard(
-                                detail: d,
-                                warehouseName:
-                                    _warehouseName(d.order.warehouseId),
-                                onTap: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) =>
-                                        OrderDetailPage(orderId: d.order.id),
-                                  ),
-                                ),
-                              );
+                              return _buildOrderCard(filtered[index]);
                             },
                           ),
                   ),
           ),
         ],
       ),
-      // 两个同等重量的 FAB 会让人犹豫先点哪个。
-      // 新建是主动作，用实心主按钮；查询已经收到标题栏，这里只留新建。
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(top: BorderSide(color: CCTTTheme.neutral300)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: CCTTTheme.space4,
-              vertical: CCTTTheme.space2 + 2,
-            ),
-            child: Row(
-              children: [
-                Expanded(child: _buildTotalSummary(filtered)),
-                const SizedBox(width: CCTTTheme.space4),
-                SizedBox(
-                  width: 148,
-                  child: CCTTPrimaryButton(
-                    label: '新建单据',
-                    icon: Icons.add,
-                    onPressed: _navigateToAddOrder,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 底部合计：既然底栏已经有位置，就把「当前筛选下一共多少钱」摆出来，
-  /// 省掉一次进汇总表的跳转。
-  Widget _buildTotalSummary(List<OrderDetail> filtered) {
-    final active = filtered.where((o) => !o.order.isDeleted).toList();
-    final total = active.fold<double>(0, (s, o) => s + o.totalAmount);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          '${active.length} 张单据',
-          style: const TextStyle(fontSize: 11, color: CCTTTheme.neutral500),
-        ),
-        const SizedBox(height: 2),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Text(
-            '¥${_amountFormat.format(total)}',
-            style: CCTTTheme.numeric(size: 19),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 仓库筛选：横向 chip 条。
-  /// 原来是一个 PopupMenuButton —— 当前选中的仓库要点开才知道，
-  /// 而仓库通常只有两三个，直接平铺出来一眼可见、一下可切。
-  Widget _buildWarehouseFilterBar() {
-    final totalActive = _orders.where((o) => !o.order.isDeleted).length;
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: CCTTTheme.neutral300)),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(
-          horizontal: CCTTTheme.space3,
-          vertical: CCTTTheme.space2,
-        ),
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _filterChip(
-              label: '全部',
-              count: totalActive,
-              selected: _selectedWarehouseId == null,
-              onTap: () => setState(() => _selectedWarehouseId = null),
+            FloatingActionButton.extended(
+              heroTag: 'search',
+              onPressed: _showSearchDialog,
+              icon: const Icon(Icons.search),
+              label: Text(_searchKeyword.isNotEmpty ? '搜索中' : '查询'),
+              backgroundColor: _searchKeyword.isNotEmpty ? Colors.teal : null,
             ),
-            ..._warehouses.map((w) {
-              final count = _orders
-                  .where((o) => !o.order.isDeleted && o.order.warehouseId == w.id)
-                  .length;
-              return Padding(
-                padding: const EdgeInsets.only(left: CCTTTheme.space2),
-                child: _filterChip(
-                  label: w.name,
-                  count: count,
-                  selected: _selectedWarehouseId == w.id,
-                  onTap: () => setState(() => _selectedWarehouseId = w.id),
-                ),
-              );
-            }),
+            FloatingActionButton.extended(
+              heroTag: 'add',
+              onPressed: _navigateToAddOrder,
+              icon: const Icon(Icons.add),
+              label: const Text('新建'),
+            ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _filterChip({
-    required String label,
-    required int count,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: selected ? CCTTTheme.primaryDark : CCTTTheme.neutral100,
-      borderRadius: BorderRadius.circular(CCTTTheme.radiusFullish),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(CCTTTheme.radiusFullish),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: CCTTTheme.space3,
-            vertical: CCTTTheme.space2,
-          ),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(CCTTTheme.radiusFullish),
-            border: Border.all(
-              color: selected ? CCTTTheme.primaryDark : CCTTTheme.neutral300,
-            ),
-          ),
-          child: Row(
-            children: [
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: selected ? Colors.white : CCTTTheme.neutral700,
-                ),
-              ),
-              const SizedBox(width: CCTTTheme.space1 + 2),
-              Text(
-                '$count',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontFamily: CCTTTheme.monoFont,
-                  fontWeight: FontWeight.w700,
-                  color: selected
-                      ? CCTTTheme.accentAmber
-                      : CCTTTheme.neutral500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 搜索中的状态条：让「现在看到的是搜索结果」这件事一直可见，
-  /// 并且清除只需一次点击。
-  Widget _buildSearchBanner() {
-    return Container(
-      width: double.infinity,
-      color: CCTTTheme.accentOrange.withValues(alpha: 0.08),
-      padding: const EdgeInsets.symmetric(
-        horizontal: CCTTTheme.space4,
-        vertical: CCTTTheme.space2,
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.search, size: 15, color: CCTTTheme.accentOrange),
-          const SizedBox(width: CCTTTheme.space2),
-          Expanded(
-            child: Text(
-              '搜索「$_searchKeyword」',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: CCTTTheme.neutral900,
-              ),
-            ),
-          ),
-          InkWell(
-            onTap: () => setState(() => _searchKeyword = ''),
-            borderRadius: BorderRadius.circular(CCTTTheme.radiusSmall),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: CCTTTheme.space2,
-                vertical: 2,
-              ),
-              child: Text(
-                '清除',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: CCTTTheme.accentOrange,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 同步面板：把原来两个图标按钮合并成一处，
-  /// 推送和拉取各自的待处理数量在这里说清楚，而不是靠 tooltip。
-  Future<void> _showSyncSheet() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: CCTTTheme.space3),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  CCTTTheme.space4,
-                  CCTTTheme.space2,
-                  CCTTTheme.space4,
-                  CCTTTheme.space3,
-                ),
-                child: Row(
-                  children: [
-                    const Text(
-                      '云端同步',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (_cloudChecked && _unpushedCount == 0 && _cloudNewCount == 0)
-                      const StatusChip(
-                        label: '已是最新',
-                        color: CCTTTheme.statusSynced,
-                        icon: Icons.check,
-                      ),
-                  ],
-                ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.cloud_upload_outlined),
-                title: const Text('推送到云端'),
-                subtitle: Text(
-                  _unpushedCount > 0 ? '$_unpushedCount 张单据还没上传' : '本地没有待上传的改动',
-                ),
-                trailing: _unpushedCount > 0
-                    ? StatusChip(
-                        label: '$_unpushedCount',
-                        color: CCTTTheme.statusPending,
-                        filled: true,
-                      )
-                    : null,
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _syncRecords();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.cloud_download_outlined),
-                title: const Text('从云端拉取'),
-                subtitle: Text(
-                  _cloudNewCount > 0
-                      ? '云端有 $_cloudNewCount 张新单据'
-                      : _cloudChecked
-                          ? '云端没有新数据'
-                          : '还没检查过云端',
-                ),
-                trailing: _cloudNewCount > 0
-                    ? StatusChip(
-                        label: '$_cloudNewCount',
-                        color: CCTTTheme.statusSyncing,
-                        filled: true,
-                      )
-                    : null,
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _pullSnapshot();
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
@@ -945,50 +679,160 @@ class _HomePageState extends State<HomePage> {
 
   /// 空状态提示
   Widget _buildEmptyState() {
-    final String title;
-    final String message;
-    if (_searchKeyword.isNotEmpty) {
-      title = '没有匹配的单据';
-      message = '换个关键词试试，或者清除搜索看全部单据';
-    } else if (_warehouses.isEmpty) {
-      title = '先建一个仓库';
-      message = '单据要挂在仓库下面，建好仓库就能开始记账了';
-    } else if (_selectedWarehouseId == null) {
-      title = '还没有单据';
-      message = '拍一张单据照片，剩下的交给识别';
-    } else {
-      title = '这个仓库还没有单据';
-      message = '切到「全部」看看其他仓库，或者在这里新建一张';
-    }
-
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: CCTTEmptyState(
-              icon: _searchKeyword.isNotEmpty
-                  ? Icons.search_off
-                  : _warehouses.isEmpty
-                      ? Icons.warehouse_outlined
-                      : Icons.receipt_long_outlined,
-              title: title,
-              message: message,
-              action: _warehouses.isEmpty
-                  ? SizedBox(
-                      width: 200,
-                      child: CCTTPrimaryButton(
-                        label: '创建默认仓库',
-                        icon: Icons.add_business,
-                        onPressed: _createDefaultWarehouse,
-                      ),
-                    )
-                  : null,
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.inbox, size: 64, color: Colors.grey),
+                  const SizedBox(height: 12),
+                  Text(
+                    _selectedWarehouseId == null ? '暂无单据' : '该仓库暂无单据',
+                    style: const TextStyle(fontSize: 16, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '点击右下角按钮添加第一张单据',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_warehouses.isEmpty)
+                    ElevatedButton.icon(
+                      onPressed: _createDefaultWarehouse,
+                      icon: const Icon(Icons.add_business),
+                      label: const Text('创建默认仓库'),
+                    ),
+                ],
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  /// 新建 Order 卡片
+  Widget _buildOrderCard(OrderDetail d) {
+    final o = d.order;
+    final isInbound = o.type == MovementType.inbound;
+    final isDeleted = o.isDeleted;
+    final displayTitle = d.items.isNotEmpty
+        ? d.items.map((i) => i.itemName).toSet().join('、')
+        : o.partnerName;
+    final dt = DateTime.fromMillisecondsSinceEpoch(o.timestamp);
+    String pf(int n) => n.toString().padLeft(2, '0');
+    final ts =
+        '${dt.year}-${pf(dt.month)}-${pf(dt.day)} ${pf(dt.hour)}:${pf(dt.minute)}';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: isDeleted ? Colors.grey.shade50 : null,
+      child: ListTile(
+        onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => OrderDetailPage(orderId: o.id))),
+        leading: CircleAvatar(
+            backgroundColor: o.syncStatus == SyncStatus.synced
+                ? Colors.green.shade100
+                : Colors.orange.shade100,
+            child: Icon(
+                o.syncStatus == SyncStatus.synced
+                    ? Icons.check_circle
+                    : Icons.sync,
+                color: o.syncStatus == SyncStatus.synced
+                    ? Colors.green.shade800
+                    : Colors.orange.shade800)),
+        title: Row(children: [
+          Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                  color: isInbound
+                      ? Colors.green.shade50
+                      : o.type == MovementType.outbound
+                          ? Colors.red.shade50
+                          : Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: isInbound
+                          ? Colors.green
+                          : o.type == MovementType.outbound
+                              ? Colors.red
+                              : Colors.orange)),
+              child: Text(
+                  isInbound
+                      ? '入库'
+                      : o.type == MovementType.outbound
+                          ? '出库'
+                          : '进货',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: isInbound
+                          ? Colors.green.shade800
+                          : o.type == MovementType.outbound
+                              ? Colors.red.shade800
+                              : Colors.orange.shade800))),
+          const SizedBox(width: 8),
+          Expanded(
+              child: Text(displayTitle,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      decoration: isDeleted ? TextDecoration.lineThrough : null,
+                      color: isDeleted ? Colors.grey.shade500 : null))),
+          if (isDeleted)
+            Container(
+                margin: const EdgeInsets.only(left: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                    border: Border.all(color: Colors.red, width: 1.5),
+                    borderRadius: BorderRadius.circular(4)),
+                child: const Text('已作废',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red))),
+        ]),
+        subtitle:
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const SizedBox(height: 4),
+          Text(
+              '${_warehouseName(o.warehouseId)}  •  $ts${d.items.length > 1 ? "  •  ${d.items.length}项货物" : ""}',
+              style: TextStyle(
+                  fontSize: 12,
+                  color:
+                      isDeleted ? Colors.grey.shade400 : Colors.grey.shade700,
+                  decoration: isDeleted ? TextDecoration.lineThrough : null)),
+          Text('${o.partnerName}  |  ¥${d.totalAmount.toStringAsFixed(2)}',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: isDeleted ? Colors.grey.shade400 : Colors.teal)),
+        ]),
+        trailing: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+                color: (o.syncStatus == SyncStatus.synced
+                        ? Colors.green
+                        : Colors.orange)
+                    .withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: o.syncStatus == SyncStatus.synced
+                        ? Colors.green
+                        : Colors.orange,
+                    width: 1.5)),
+            child: Text(o.syncStatus == SyncStatus.synced ? '已同步' : '未同步',
+                style: TextStyle(
+                    color: o.syncStatus == SyncStatus.synced
+                        ? Colors.green
+                        : Colors.orange,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold))),
+      ),
     );
   }
 }
@@ -1003,27 +847,99 @@ class _DeletedOrdersPage extends StatelessWidget {
     required this.warehouseName,
   });
 
+  String _fmt(int ts) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ts);
+    String p(int n) => n.toString().padLeft(2, '0');
+    return '${d.year}-${p(d.month)}-${p(d.day)} ${p(d.hour)}:${p(d.minute)}';
+  }
+
+  String _typeLabel(MovementType type) {
+    return switch (type) {
+      MovementType.inbound => '入库',
+      MovementType.outbound => '出库',
+      MovementType.supply => '进货',
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('已作废单据（${orders.length}）')),
       body: orders.isEmpty
-          ? const CCTTEmptyState(
-              icon: Icons.delete_sweep_outlined,
-              title: '没有作废的单据',
-              message: '作废的单据会留在这里，方便日后核对',
+          ? const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.delete_sweep, size: 64, color: Colors.grey),
+                  SizedBox(height: 12),
+                  Text(
+                    '没有已作废的单据',
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
+                ],
+              ),
             )
           : ListView.builder(
-              padding: const EdgeInsets.all(CCTTTheme.space3),
               itemCount: orders.length,
               itemBuilder: (context, index) {
                 final d = orders[index];
-                return OrderCard(
-                  detail: d,
-                  warehouseName: warehouseName(d.order.warehouseId),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => OrderDetailPage(orderId: d.order.id),
+                final o = d.order;
+                final displayTitle = d.items.isNotEmpty
+                    ? d.items.map((i) => i.itemName).toSet().join('、')
+                    : o.partnerName;
+                return Card(
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  color: Colors.grey.shade50,
+                  child: ListTile(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => OrderDetailPage(orderId: o.id),
+                        ),
+                      );
+                    },
+                    leading: const Icon(Icons.cancel, color: Colors.red),
+                    title: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.red),
+                          ),
+                          child: Text(
+                            _typeLabel(o.type),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.red,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            displayTitle,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              decoration: TextDecoration.lineThrough,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: Text(
+                      '${warehouseName(o.warehouseId)}  •  ${_fmt(o.timestamp)}  |  ${o.partnerName}  |  ¥${d.totalAmount.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                        decoration: TextDecoration.lineThrough,
+                      ),
                     ),
                   ),
                 );

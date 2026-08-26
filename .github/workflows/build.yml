@@ -29,6 +29,20 @@ jobs:
         flutter-version: '3.41.7'
         channel: 'stable'
 
+    - name: Configure Android signing
+      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+      env:
+        ANDROID_SIGNING_KEY_BASE64: ${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
+        ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      run: |
+        test -n "$ANDROID_SIGNING_KEY_BASE64"
+        printf '%s' "$ANDROID_SIGNING_KEY_BASE64" | base64 --decode > android/app/cctt-release.jks
+        printf 'storeFile=cctt-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+          "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD" \
+          > android/key.properties
+
     - name: Get dependencies
       run: flutter pub get
 
@@ -117,24 +131,24 @@ jobs:
         # 获取文件大小
         FILE_SIZE=$(stat -c%s "cctt-v${VERSION_NAME}-arm64.apk")
 
-        # 获取更新日志（从最近的commit messages）
+        # 从版本清单读取本次更新日志，逐条显示在 App 更新弹窗中
         cd ../../../../
-        CHANGELOG=$(git log --pretty=format:"- %s" -5 | sed 's/"/\\"/g' | tr '\n' ' ')
+        CHANGELOG=$(node -e "const r=require('./admin/releases/latest.json'); process.stdout.write(JSON.stringify(r.changelog || [r.releaseNotes]))")
+        PAYLOAD=$(jq -nc \
+          --argjson versionCode "${VERSION_CODE}" \
+          --arg versionName "${VERSION_NAME}" \
+          --arg downloadUrl "https://www.beelzebub.top/downloads/cctt-v${VERSION_NAME}.apk" \
+          --argjson fileSize "${FILE_SIZE}" \
+          --argjson changelog "${CHANGELOG}" \
+          '{versionCode:$versionCode,versionName:$versionName,downloadUrl:$downloadUrl,fileSize:$fileSize,changelog:$changelog,forceUpdate:false,minVersion:1}')
+        PAYLOAD_BASE64=$(printf '%s' "$PAYLOAD" | base64 -w0)
 
         # 调用服务器API更新版本信息
         ssh -i ~/.ssh/deploy_key \
           ${SERVER_USER}@${SERVER_HOST} \
-          "curl -X POST http://localhost:3456/api/version/update \
-            -H 'Content-Type: application/json' \
-            -d '{
-              \"versionCode\": ${VERSION_CODE},
-              \"versionName\": \"${VERSION_NAME}\",
-              \"downloadUrl\": \"https://www.beelzebub.top/downloads/cctt-v${VERSION_NAME}.apk\",
-              \"fileSize\": ${FILE_SIZE},
-              \"changelog\": [\"${CHANGELOG}\"],
-              \"forceUpdate\": false,
-              \"minVersion\": 1
-            }'"
+          "printf '%s' '${PAYLOAD_BASE64}' | base64 -d | \
+            curl --fail-with-body -X POST http://localhost:3456/api/version/update \
+              -H 'Content-Type: application/json' --data-binary @-"
 
         # 清理密钥
         rm -f ~/.ssh/deploy_key

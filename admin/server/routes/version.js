@@ -5,17 +5,17 @@ const path = require('path');
 
 // 当前最新版本信息（可以从文件或数据库读取）
 let latestVersion = {
-  versionCode: 2,
-  versionName: '0.1.1',
+  versionCode: 3,
+  versionName: '0.1.2',
   buildTime: Date.now(),
-  downloadUrl: 'https://www.beelzebub.top/downloads/cctt-v0.1.1.apk',
+  downloadUrl: 'https://www.beelzebub.top/downloads/cctt-v0.1.2.apk',
   fileSize: 0, // 字节
   md5: '',
   changelog: [
-    '新增：按日期生成出货和进货汇总',
-    '新增：进货客户及品类统计',
-    '新增：云端版本检查和应用内安装',
-    '修复：设置页检查更新返回 401'
+    '恢复原版青绿色界面与操作布局',
+    '保留出货、进货及客户品类汇总功能',
+    '修复设置页检查更新返回 401 的问题',
+    '固定 APK 构建签名，支持后续覆盖更新'
   ],
   forceUpdate: false, // 是否强制更新
   minVersion: 1 // 最低支持的版本号，低于此版本必须更新

@@ -1,10 +1,16 @@
 {
-  "versionName": "0.1.1",
-  "versionCode": 2,
+  "versionName": "0.1.2",
+  "versionCode": 3,
   "mandatory": false,
   "apkFile": "cctt-latest.apk",
   "sha256": "",
-  "releaseNotes": "新增汇总功能、云端版本更新和离线数据同步。",
-  "publishedAt": "2026-08-25T23:00:00+08:00"
+  "releaseNotes": "恢复原版界面，保留汇总与云端更新功能。",
+  "changelog": [
+    "恢复原版青绿色界面与操作布局",
+    "保留出货、进货及客户品类汇总功能",
+    "修复设置页检查更新返回 401 的问题",
+    "固定 APK 构建签名，支持后续覆盖更新"
+  ],
+  "publishedAt": "2026-08-26T08:30:00+08:00"
 }
 
