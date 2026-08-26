@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_file/open_file.dart';
 
+import '../services/storage_cleanup_service.dart';
 import '../services/update_service.dart';
 
 /// 更新对话框
@@ -210,6 +211,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
       final contentLength = response.contentLength ?? 0;
       final directory =
           await getExternalStorageDirectory() ?? await getTemporaryDirectory();
+      await StorageCleanupService.cleanupUpdatePackages(directory);
       final filePath =
           '${directory.path}/cctt-${widget.versionInfo.versionName}.apk';
       final file = File(filePath);
