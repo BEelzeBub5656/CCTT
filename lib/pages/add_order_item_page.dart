@@ -44,6 +44,7 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
   String? _capturedImagePath;
   bool _isSaving = false;
   bool _showGrossWeight = false;
+  bool _itemsExpanded = false;
 
   @override
   void initState() {
@@ -66,6 +67,14 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
 
   double get _totalItemAmount => _items.fold(0.0, (s, i) => s + i.amount);
   double get _totalFeeAmount => _fees.fold(0.0, (s, f) => s + f.amount);
+  double get _totalGrossWeight => _items.fold(
+      0.0,
+      (sum, item) =>
+          sum + (item.grossWeight > 0 ? item.grossWeight : item.quantity));
+  double get _totalTareWeight =>
+      _items.fold(0.0, (sum, item) => sum + item.tareWeight);
+  double get _totalNetWeight =>
+      _items.fold(0.0, (sum, item) => sum + item.quantity);
 
   Future<void> _addItem() async {
     final name = _itemNameController.text.trim();
@@ -152,6 +161,197 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
 
   void _deleteItem(int i) => setState(() => _items.removeAt(i));
   void _deleteFee(int i) => setState(() => _fees.removeAt(i));
+
+  Future<void> _editItem(int index) async {
+    final item = _items[index];
+    final nameController = TextEditingController(text: item.itemName);
+    final quantityController =
+        TextEditingController(text: _formatNumber(item.quantity));
+    final priceController =
+        TextEditingController(text: _formatNumber(item.unitPrice));
+    final grossController = item.grossWeight > 0
+        ? TextEditingController(text: _formatNumber(item.grossWeight))
+        : TextEditingController();
+    final tareController =
+        TextEditingController(text: _formatNumber(item.tareWeight));
+    final pieceController = TextEditingController(text: item.pieceNumber ?? '');
+    final remarkController = TextEditingController(text: item.itemRemark ?? '');
+    final usesGrossWeight = item.grossWeight > 0;
+    String? validationMessage;
+
+    final updatedItem = await showDialog<OrderItem>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final gross = double.tryParse(grossController.text) ?? 0;
+          final tare = double.tryParse(tareController.text) ?? 0;
+          return AlertDialog(
+            title: Text('修改第 ${index + 1} 项'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: '货物名称'),
+                  ),
+                  const SizedBox(height: 8),
+                  if (usesGrossWeight) ...[
+                    Row(children: [
+                      Expanded(
+                        child: TextField(
+                          controller: grossController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration:
+                              const InputDecoration(labelText: '毛重 (kg)'),
+                          onChanged: (_) => setDialogState(() {}),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: tareController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration:
+                              const InputDecoration(labelText: '扣皮 (kg)'),
+                          onChanged: (_) => setDialogState(() {}),
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '净重：${_formatNumber(gross - tare)} kg',
+                        style: const TextStyle(
+                            color: Colors.teal, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ] else
+                    TextField(
+                      controller: quantityController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: '净重 (kg)'),
+                    ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: priceController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: '单价 (元/吨)'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: pieceController,
+                    decoration: const InputDecoration(labelText: '件号（可选）'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: remarkController,
+                    decoration: const InputDecoration(labelText: '明细备注（可选）'),
+                  ),
+                  if (validationMessage != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      validationMessage!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final name = nameController.text.trim();
+                  final price = double.tryParse(priceController.text);
+                  final parsedGross = double.tryParse(grossController.text);
+                  final parsedTare = double.tryParse(tareController.text) ?? 0;
+                  final parsedQuantity =
+                      double.tryParse(quantityController.text);
+                  if (name.isEmpty) {
+                    setDialogState(() => validationMessage = '货物名称不能为空');
+                    return;
+                  }
+                  if (price == null || price <= 0) {
+                    setDialogState(() => validationMessage = '请输入有效单价');
+                    return;
+                  }
+                  if (usesGrossWeight &&
+                      (parsedGross == null ||
+                          parsedGross <= 0 ||
+                          parsedTare < 0 ||
+                          parsedTare >= parsedGross)) {
+                    setDialogState(() => validationMessage = '毛重需大于 0，扣皮需小于毛重');
+                    return;
+                  }
+                  if (!usesGrossWeight &&
+                      (parsedQuantity == null || parsedQuantity <= 0)) {
+                    setDialogState(() => validationMessage = '净重必须大于 0');
+                    return;
+                  }
+
+                  final quantity = usesGrossWeight
+                      ? parsedGross! - parsedTare
+                      : parsedQuantity!;
+                  Navigator.pop(
+                    dialogContext,
+                    OrderItem(
+                      id: item.id,
+                      orderId: item.orderId,
+                      itemName: name,
+                      quantity: quantity,
+                      unitPrice: price,
+                      grossWeight: usesGrossWeight ? parsedGross! : 0.0,
+                      tareWeight: usesGrossWeight ? parsedTare : 0.0,
+                      totalPieces: item.totalPieces,
+                      deliveryPerson: item.deliveryPerson,
+                      imagePath: item.imagePath,
+                      sortOrder: item.sortOrder,
+                      itemNumber: item.itemNumber,
+                      pieceNumber: pieceController.text.trim().isEmpty
+                          ? null
+                          : pieceController.text.trim(),
+                      itemRemark: remarkController.text.trim().isEmpty
+                          ? null
+                          : remarkController.text.trim(),
+                    ),
+                  );
+                },
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    nameController.dispose();
+    quantityController.dispose();
+    priceController.dispose();
+    grossController.dispose();
+    tareController.dispose();
+    pieceController.dispose();
+    remarkController.dispose();
+    if (updatedItem != null && mounted) {
+      setState(() => _items[index] = updatedItem);
+    }
+  }
+
+  String _formatNumber(double value) {
+    if (value == value.roundToDouble()) return value.toInt().toString();
+    return value
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+  }
 
   Future<void> _saveOrder() async {
     setState(() => _isSaving = true);
@@ -334,34 +534,96 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
       body: ListView(padding: const EdgeInsets.all(12), children: [
         // 已添加的明细列表
         if (_items.isNotEmpty) ...[
-          const Text('货物明细',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          Row(children: [
+            const Expanded(
+              child: Text('货物明细',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            if (_items.length > 8)
+              TextButton.icon(
+                onPressed: () =>
+                    setState(() => _itemsExpanded = !_itemsExpanded),
+                icon: Icon(
+                    _itemsExpanded ? Icons.expand_less : Icons.expand_more),
+                label: Text(_itemsExpanded ? '收起' : '展开 ${_items.length} 项'),
+              ),
+          ]),
           const SizedBox(height: 8),
-          ..._items.asMap().entries.map((e) => Card(
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.teal.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.teal.shade100),
+            ),
+            child: Text(
+              '${_items.length} 件　毛重 ${_formatNumber(_totalGrossWeight)} kg　'
+              '扣皮 ${_formatNumber(_totalTareWeight)} kg\n'
+              '净重 ${_formatNumber(_totalNetWeight)} kg　'
+              '金额 ¥${_totalItemAmount.toStringAsFixed(2)}',
+              style: TextStyle(
+                height: 1.6,
+                color: Colors.teal.shade900,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (_items.length > 8 && !_itemsExpanded)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                '明细已折叠，展开后可逐项修改识别结果。',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+          if (_items.length <= 8 || _itemsExpanded) ...[
+            const SizedBox(height: 8),
+            ..._items.asMap().entries.map((e) {
+              final item = e.value;
+              final weightText = item.grossWeight > 0
+                  ? '毛${_formatNumber(item.grossWeight)} - '
+                      '皮${_formatNumber(item.tareWeight)} = '
+                      '净${_formatNumber(item.quantity)}kg'
+                  : '净${_formatNumber(item.quantity)}kg';
+              return Card(
                 child: ListTile(
-                  leading: CircleAvatar(child: Text('${e.value.itemNumber ?? e.key + 1}')),
-                  title: Text('${e.value.itemName}${e.value.pieceNumber != null ? ' [${e.value.pieceNumber}]' : ''}'),
+                  leading: CircleAvatar(
+                      child: Text('${item.itemNumber ?? e.key + 1}')),
+                  title: Text(
+                      '${item.itemName}${item.pieceNumber != null ? ' [${item.pieceNumber}]' : ''}'),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                          '净${e.value.quantity.toStringAsFixed(1)}kg × ¥${e.value.unitPrice.toStringAsFixed(2)}/吨 = ¥${e.value.amount.toStringAsFixed(2)}'),
-                      if (e.value.itemRemark != null)
-                        Text('备注: ${e.value.itemRemark}',
-                            style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                          '$weightText × ¥${_formatNumber(item.unitPrice)}/吨 = ¥${item.amount.toStringAsFixed(2)}'),
+                      if (item.itemRemark != null)
+                        Text('备注: ${item.itemRemark}',
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.grey)),
                     ],
                   ),
-                  trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: () => _deleteItem(e.key)),
+                  trailing: SizedBox(
+                    width: 80,
+                    child: Row(children: [
+                      IconButton(
+                        tooltip: '修改',
+                        icon:
+                            const Icon(Icons.edit_outlined, color: Colors.teal),
+                        onPressed: () => _editItem(e.key),
+                      ),
+                      IconButton(
+                        tooltip: '删除',
+                        icon:
+                            const Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed: () => _deleteItem(e.key),
+                      ),
+                    ]),
+                  ),
                 ),
-              )),
-          const Divider(),
-          Text('合计：¥${_totalItemAmount.toStringAsFixed(2)}',
-              style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.teal)),
+              );
+            }),
+          ],
           const SizedBox(height: 16),
         ],
         // 添加新明细
