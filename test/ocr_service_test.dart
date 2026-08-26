@@ -118,5 +118,51 @@ void main() {
         DateTime(2026, 7, 23),
       );
     });
+
+    test('parses multiple handwritten orders and manual-fill hints', () {
+      final response = OcrResponse.fromJson({
+        'success': true,
+        'document_type': 'handwritten',
+        'orders': [
+          {
+            'partnerName': '客户甲',
+            'type': 'supply',
+            'date_hint': '2025-03-06',
+            'items': [
+              {
+                'itemName': '回毛',
+                'quantity': 1482.6,
+                'unitPrice': 0,
+                'itemRemark': '单价无法确定，请手动填写',
+              },
+            ],
+            'warning': ['单价无法确定，请手动填写'],
+          },
+          {
+            'partnerName': '',
+            'type': 'supply',
+            'date_hint': '2025-03-07',
+            'items': [
+              {
+                'itemName': '',
+                'quantity': 0,
+                'unitPrice': 5200,
+                'itemRemark': '重量无法确定，请手动填写',
+              },
+            ],
+            'warnings': ['交易对象和重量无法确定，请手动填写'],
+          },
+        ],
+      });
+
+      expect(response.orders, hasLength(2));
+      expect(response.orders.first.parsedDate(), DateTime(2025, 3, 6));
+      expect(response.orders.first.warnings, hasLength(1));
+      expect(response.orders.first.items.single.itemRemark, '单价无法确定，请手动填写');
+      expect(response.orders.last.parsedDate(), DateTime(2025, 3, 7));
+      expect(response.orders.last.partnerName, isEmpty);
+      expect(response.orders.last.items.single.quantity, 0);
+      expect(response.orders.last.warnings.single, contains('请手动填写'));
+    });
   });
 }

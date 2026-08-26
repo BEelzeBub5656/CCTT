@@ -17,9 +17,15 @@ class AddOrderItemPage extends StatefulWidget {
   final Order order;
   final List<OrderItem>? existingItems;
   final List<OrderFee>? existingFees;
+  final bool returnToPrevious;
 
-  const AddOrderItemPage(
-      {super.key, required this.order, this.existingItems, this.existingFees});
+  const AddOrderItemPage({
+    super.key,
+    required this.order,
+    this.existingItems,
+    this.existingFees,
+    this.returnToPrevious = false,
+  });
 
   @override
   State<AddOrderItemPage> createState() => _AddOrderItemPageState();
@@ -354,6 +360,21 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
   }
 
   Future<void> _saveOrder() async {
+    if (widget.returnToPrevious) {
+      final incompleteItems = _items.where((item) =>
+          item.itemName.trim().isEmpty ||
+          item.quantity <= 0 ||
+          item.unitPrice <= 0);
+      final incompleteFees =
+          _fees.where((fee) => fee.feeName.trim().isEmpty || fee.amount <= 0);
+      if (_items.isEmpty ||
+          incompleteItems.isNotEmpty ||
+          incompleteFees.isNotEmpty) {
+        _showMsg('仍有 OCR 字段未填写，请逐项修改后再保存');
+        return;
+      }
+    }
+
     setState(() => _isSaving = true);
     try {
       // 删除旧明细/费用，重新写入
@@ -384,6 +405,10 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
 
       if (mounted) {
         _autoSync();
+        if (widget.returnToPrevious) {
+          Navigator.of(context).pop(true);
+          return;
+        }
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
               builder: (_) => OrderDetailPage(orderId: widget.order.id)),

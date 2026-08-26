@@ -13,6 +13,7 @@ import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 import '../services/ocr_service.dart';
 import 'add_order_item_page.dart';
+import 'ocr_batch_review_page.dart';
 
 /// 新建主单据页（仓库/日期/类型/客户 + OCR 拍照识别）
 class AddOrderPage extends StatefulWidget {
@@ -139,6 +140,24 @@ class _AddOrderPageState extends State<AddOrderPage> {
 
       if (!result.success || result.orders.isEmpty) {
         _showMsg('未识别到单据信息，请重试或手动输入');
+        return;
+      }
+
+      if (result.orders.length > 1) {
+        final warehouseId = _selectedWarehouseId;
+        if (warehouseId == null || warehouseId.isEmpty) {
+          _showMsg('批量导入前请先选择目标仓库');
+          return;
+        }
+        await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => OcrBatchReviewPage(
+              orders: result.orders,
+              warehouseId: warehouseId,
+              globalWarnings: result.warnings,
+            ),
+          ),
+        );
         return;
       }
 
