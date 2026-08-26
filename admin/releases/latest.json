@@ -1,16 +1,16 @@
 {
-  "versionName": "0.1.2",
-  "versionCode": 3,
+  "versionName": "0.1.3",
+  "versionCode": 4,
   "mandatory": false,
   "apkFile": "cctt-latest.apk",
   "sha256": "",
-  "releaseNotes": "恢复原版界面，保留汇总与云端更新功能。",
+  "releaseNotes": "修复点击立即更新无反应的问题。",
   "changelog": [
-    "恢复原版青绿色界面与操作布局",
-    "保留出货、进货及客户品类汇总功能",
-    "修复设置页检查更新返回 401 的问题",
-    "固定 APK 构建签名，支持后续覆盖更新"
+    "修复 Android 13/14 点击立即更新无反应的问题",
+    "新增安装未知应用权限引导",
+    "下载进度、权限和安装错误会明确显示",
+    "APK 改为流式保存，降低更新时的内存占用"
   ],
-  "publishedAt": "2026-08-26T08:30:00+08:00"
+  "publishedAt": "2026-08-26T08:45:00+08:00"
 }
 

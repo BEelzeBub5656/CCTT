@@ -68,17 +68,20 @@ class _UpdateDialogState extends State<UpdateDialog> {
               // 更新日志
               if (widget.versionInfo.changelog.isNotEmpty) ...[
                 const Text('更新内容：',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    style:
+                        TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 const SizedBox(height: 8),
                 ...widget.versionInfo.changelog.map((log) => Padding(
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('• ', style: TextStyle(color: Colors.teal)),
+                          const Text('• ',
+                              style: TextStyle(color: Colors.teal)),
                           Expanded(
                             child: Text(log,
-                                style: const TextStyle(fontSize: 13, height: 1.4)),
+                                style:
+                                    const TextStyle(fontSize: 13, height: 1.4)),
                           ),
                         ],
                       ),
@@ -109,13 +112,16 @@ class _UpdateDialogState extends State<UpdateDialog> {
                   ),
                 ),
 
-              // 下载进度
-              if (_downloading) ...[
+              // 下载进度和错误提示。即使下载已停止，也要让用户看见原因。
+              if (_status.isNotEmpty) ...[
                 const SizedBox(height: 16),
-                LinearProgressIndicator(value: _progress),
+                if (_downloading) LinearProgressIndicator(value: _progress),
                 const SizedBox(height: 8),
                 Text(_status,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _downloading ? Colors.grey : Colors.red.shade700,
+                    ),
                     textAlign: TextAlign.center),
               ],
             ],
@@ -148,7 +154,8 @@ class _UpdateDialogState extends State<UpdateDialog> {
         children: [
           Text(label, style: const TextStyle(fontSize: 13, color: Colors.grey)),
           Text(value,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+              style:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
         ],
       ),
     );
@@ -163,26 +170,36 @@ class _UpdateDialogState extends State<UpdateDialog> {
     setState(() {
       _downloading = true;
       _progress = 0.0;
-      _status = '正在请求下载权限...';
+      _status = '正在检查安装权限...';
     });
 
-    // 请求存储权限
+    // APK 保存在应用专属目录，不需要申请 Android 的公共存储权限。
+    // Android 8+ 首次侧载需要用户允许“安装未知应用”。
     if (Platform.isAndroid) {
-      final status = await Permission.storage.request();
+      var status = await Permission.requestInstallPackages.status;
       if (!status.isGranted) {
-        setState(() {
-          _downloading = false;
-          _status = '需要存储权限才能下载更新';
-        });
+        if (mounted) {
+          setState(() => _status = '请允许 CCTT 安装未知应用，返回后将继续下载');
+        }
+        status = await Permission.requestInstallPackages.request();
+      }
+      if (!status.isGranted) {
+        if (mounted) {
+          setState(() {
+            _downloading = false;
+            _status = '未获得安装权限，请再次点击“立即更新”开启权限';
+          });
+        }
         return;
       }
     }
 
+    final client = http.Client();
     try {
       setState(() => _status = '正在下载...');
 
       // 下载文件
-      final response = await http.Client().send(
+      final response = await client.send(
         http.Request('GET', Uri.parse(widget.versionInfo.downloadUrl)),
       );
 
@@ -191,35 +208,39 @@ class _UpdateDialogState extends State<UpdateDialog> {
       }
 
       final contentLength = response.contentLength ?? 0;
-      final bytes = <int>[];
+      final directory =
+          await getExternalStorageDirectory() ?? await getTemporaryDirectory();
+      final filePath =
+          '${directory.path}/cctt-${widget.versionInfo.versionName}.apk';
+      final file = File(filePath);
+      final sink = file.openWrite();
       int receivedBytes = 0;
 
-      await for (final chunk in response.stream) {
-        bytes.addAll(chunk);
-        receivedBytes += chunk.length;
+      try {
+        await for (final chunk in response.stream) {
+          sink.add(chunk);
+          receivedBytes += chunk.length;
 
-        if (contentLength > 0) {
-          setState(() {
-            _progress = receivedBytes / contentLength;
-            _status =
-                '已下载 ${(receivedBytes / (1024 * 1024)).toStringAsFixed(1)} MB / ${(contentLength / (1024 * 1024)).toStringAsFixed(1)} MB';
-          });
+          if (contentLength > 0 && mounted) {
+            setState(() {
+              _progress = receivedBytes / contentLength;
+              _status =
+                  '已下载 ${(receivedBytes / (1024 * 1024)).toStringAsFixed(1)} MB / ${(contentLength / (1024 * 1024)).toStringAsFixed(1)} MB';
+            });
+          }
         }
+      } finally {
+        await sink.close();
       }
 
-      // 保存文件
-      setState(() => _status = '正在保存...');
-      final directory = await getExternalStorageDirectory();
-      final filePath =
-          '${directory!.path}/cctt-${widget.versionInfo.versionName}.apk';
-      final file = File(filePath);
-      await file.writeAsBytes(bytes);
-
-      setState(() => _status = '准备安装...');
+      if (mounted) setState(() => _status = '准备安装...');
 
       // 安装APK
       if (mounted) {
-        final result = await OpenFile.open(filePath);
+        final result = await OpenFile.open(
+          filePath,
+          type: 'application/vnd.android.package-archive',
+        );
         if (result.type == ResultType.done) {
           // 安装成功，关闭对话框
           if (mounted) Navigator.pop(context, true);
@@ -237,6 +258,8 @@ class _UpdateDialogState extends State<UpdateDialog> {
           _status = '下载失败: $e';
         });
       }
+    } finally {
+      client.close();
     }
   }
 }

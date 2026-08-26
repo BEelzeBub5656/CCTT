@@ -5,17 +5,17 @@ const path = require('path');
 
 // 当前最新版本信息（可以从文件或数据库读取）
 let latestVersion = {
-  versionCode: 3,
-  versionName: '0.1.2',
+  versionCode: 4,
+  versionName: '0.1.3',
   buildTime: Date.now(),
-  downloadUrl: 'https://www.beelzebub.top/downloads/cctt-v0.1.2.apk',
+  downloadUrl: 'https://www.beelzebub.top/downloads/cctt-v0.1.3.apk',
   fileSize: 0, // 字节
   md5: '',
   changelog: [
-    '恢复原版青绿色界面与操作布局',
-    '保留出货、进货及客户品类汇总功能',
-    '修复设置页检查更新返回 401 的问题',
-    '固定 APK 构建签名，支持后续覆盖更新'
+    '修复 Android 13/14 点击立即更新无反应的问题',
+    '新增安装未知应用权限引导',
+    '下载进度、权限和安装错误会明确显示',
+    'APK 改为流式保存，降低更新时的内存占用'
   ],
   forceUpdate: false, // 是否强制更新
   minVersion: 1 // 最低支持的版本号，低于此版本必须更新
