@@ -5,17 +5,17 @@ const path = require('path');
 
 // 当前最新版本信息（可以从文件或数据库读取）
 let latestVersion = {
-  versionCode: 4,
-  versionName: '0.1.3',
+  versionCode: 2005,
+  versionName: '0.1.4',
   buildTime: Date.now(),
-  downloadUrl: 'https://www.beelzebub.top/downloads/cctt-v0.1.3.apk',
+  downloadUrl: 'https://www.beelzebub.top/downloads/cctt-v0.1.4.apk',
   fileSize: 0, // 字节
   md5: '',
   changelog: [
-    '修复 Android 13/14 点击立即更新无反应的问题',
-    '新增安装未知应用权限引导',
-    '下载进度、权限和安装错误会明确显示',
-    'APK 改为流式保存，降低更新时的内存占用'
+    '新增设置页查看版本声明和更新日志弹窗',
+    '统一 APK 实际 build 号与服务器版本号',
+    '修复按 CPU 架构拆包导致版本显示为 2004 的问题',
+    '保留应用内下载、权限引导和覆盖安装功能'
   ],
   forceUpdate: false, // 是否强制更新
   minVersion: 1 // 最低支持的版本号，低于此版本必须更新

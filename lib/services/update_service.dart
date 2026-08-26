@@ -141,6 +141,14 @@ class UpdateService {
 
   static const String _cloudBaseUrl = 'https://www.beelzebub.top/api/version';
 
+  /// 随当前 APK 固定发布，供设置页随时查看本版本声明。
+  static const List<String> currentReleaseNotes = [
+    '新增设置页“查看版本声明”，可随时查看当前版本更新日志',
+    '统一 APK 的实际 build 号与服务器版本号',
+    '修复按 CPU 架构拆包导致版本显示为 2004 的问题',
+    '保留 Android 应用内下载、权限引导和覆盖安装功能',
+  ];
+
   /// 检查 GitHub Actions 部署到云服务器的版本。
   static Future<ServerUpdateCheckResult> checkUpdate() async {
     try {

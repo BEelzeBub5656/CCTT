@@ -66,6 +66,57 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _showVersionDeclaration() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.description_outlined, color: Colors.teal),
+            SizedBox(width: 8),
+            Text('版本声明'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '当前版本：$_currentVersion',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                '更新日志',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ...UpdateService.currentReleaseNotes.map(
+                (note) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• ', style: TextStyle(color: Colors.teal)),
+                      Expanded(child: Text(note)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _ocrUrlController.dispose();
@@ -101,16 +152,31 @@ class _SettingsPageState extends State<SettingsPage> {
                   title: const Text('当前版本'),
                   subtitle: Text(_currentVersion),
                 ),
-                OutlinedButton.icon(
-                  onPressed: _checkingUpdate ? null : _checkForUpdate,
-                  icon: _checkingUpdate
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
-                  label: Text(_checkingUpdate ? '正在检查...' : '检查更新'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _checkingUpdate ? null : _checkForUpdate,
+                        icon: _checkingUpdate
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.refresh),
+                        label: Text(_checkingUpdate ? '检查中...' : '检查更新'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _showVersionDeclaration,
+                        icon: const Icon(Icons.description_outlined),
+                        label: const Text('查看版本声明'),
+                      ),
+                    ),
+                  ],
                 ),
                 const Text(
                   '通过云服务器检查版本，发现更新后可直接下载并安装。',

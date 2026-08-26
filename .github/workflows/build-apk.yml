@@ -62,16 +62,13 @@ jobs:
         run: flutter pub get
 
       - name: 🔨 构建 Release APK
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release
 
       - name: 📱 上传 APK（artifact）
         uses: actions/upload-artifact@v4
         with:
           name: CCTT-APKs
-          path: |
-            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
-            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-            build/app/outputs/flutter-apk/app-x86_64-release.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
 
       - name: 🚀 创建 GitHub Release（仅 tag 触发）
@@ -83,18 +80,11 @@ jobs:
             ## 📱 CCTT ${{ github.ref_name }}
 
             ### 安装说明
-            - **arm64-v8a**：适用于大多数现代手机
-            - **armeabi-v7a**：适用于较旧的 32 位设备
-            - **x86_64**：适用于模拟器
-
-            下载对应架构的 APK 安装即可。
+            下载通用 APK 安装即可。
 
             ### ⚠️ 注意
             首次安装可能需要允许「未知来源」应用安装。
-          files: |
-            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
-            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-            build/app/outputs/flutter-apk/app-x86_64-release.apk
+          files: build/app/outputs/flutter-apk/app-release.apk
           draft: false
           prerelease: false
           generate_release_notes: true

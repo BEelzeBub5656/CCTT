@@ -1,16 +1,16 @@
 {
-  "versionName": "0.1.3",
-  "versionCode": 4,
+  "versionName": "0.1.4",
+  "versionCode": 2005,
   "mandatory": false,
   "apkFile": "cctt-latest.apk",
   "sha256": "",
-  "releaseNotes": "修复点击立即更新无反应的问题。",
+  "releaseNotes": "新增版本声明并统一 APK 版本编号。",
   "changelog": [
-    "修复 Android 13/14 点击立即更新无反应的问题",
-    "新增安装未知应用权限引导",
-    "下载进度、权限和安装错误会明确显示",
-    "APK 改为流式保存，降低更新时的内存占用"
+    "新增设置页查看版本声明和更新日志弹窗",
+    "统一 APK 实际 build 号与服务器版本号",
+    "修复按 CPU 架构拆包导致版本显示为 2004 的问题",
+    "保留应用内下载、权限引导和覆盖安装功能"
   ],
-  "publishedAt": "2026-08-26T08:45:00+08:00"
+  "publishedAt": "2026-08-26T09:15:00+08:00"
 }
 

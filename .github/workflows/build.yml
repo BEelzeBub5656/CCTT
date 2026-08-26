@@ -55,7 +55,7 @@ jobs:
 
     - name: Build APK (Release)
       if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
-      run: flutter build apk --release --split-per-abi
+      run: flutter build apk --release
 
     - name: Get version from pubspec.yaml
       id: version
@@ -71,9 +71,7 @@ jobs:
       if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
       run: |
         cd build/app/outputs/flutter-apk/
-        mv app-arm64-v8a-release.apk cctt-v${{ steps.version.outputs.version_name }}-arm64.apk
-        mv app-armeabi-v7a-release.apk cctt-v${{ steps.version.outputs.version_name }}-armeabi.apk
-        mv app-x86_64-release.apk cctt-v${{ steps.version.outputs.version_name }}-x86_64.apk
+        mv app-release.apk cctt-v${{ steps.version.outputs.version_name }}.apk
 
     - name: Upload APK artifacts
       uses: actions/upload-artifact@v4
@@ -93,9 +91,7 @@ jobs:
           构建版本: ${{ steps.version.outputs.version_code }}
 
           ### 下载说明
-          - `cctt-v${{ steps.version.outputs.version_name }}-arm64.apk` - 推荐，适用于大多数现代手机
-          - `cctt-v${{ steps.version.outputs.version_name }}-armeabi.apk` - 适用于老旧32位设备
-          - `cctt-v${{ steps.version.outputs.version_name }}-x86_64.apk` - 适用于模拟器
+          - `cctt-v${{ steps.version.outputs.version_name }}.apk` - 通用安装包
 
           ### 安装说明
           1. 下载对应架构的APK文件
@@ -125,11 +121,11 @@ jobs:
         # 上传APK到服务器
         cd build/app/outputs/flutter-apk/
         scp -i ~/.ssh/deploy_key \
-          cctt-v${VERSION_NAME}-arm64.apk \
+          cctt-v${VERSION_NAME}.apk \
           ${SERVER_USER}@${SERVER_HOST}:/opt/CCTT/admin/downloads/cctt-v${VERSION_NAME}.apk
 
         # 获取文件大小
-        FILE_SIZE=$(stat -c%s "cctt-v${VERSION_NAME}-arm64.apk")
+        FILE_SIZE=$(stat -c%s "cctt-v${VERSION_NAME}.apk")
 
         # 从版本清单读取本次更新日志，逐条显示在 App 更新弹窗中
         cd ../../../../
