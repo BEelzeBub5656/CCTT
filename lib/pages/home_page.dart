@@ -27,13 +27,16 @@ class _HomePageState extends State<HomePage> {
   bool _isLoading = true;
   int _unpushedCount = 0;
   int _cloudNewCount = 0;
-  bool _cloudChecked = false;
   String _searchKeyword = '';
   Timer? _autoSyncTimer;
   bool _isAutoSyncRunning = false;
+  bool _isManualSyncing = false;
 
   /// null 表示「所有仓库」
   String? _selectedWarehouseId;
+
+  /// null 表示「全部单据类型」
+  MovementType? _selectedType;
 
   @override
   void initState() {
@@ -111,7 +114,6 @@ class _HomePageState extends State<HomePage> {
 
     setState(() {
       _cloudNewCount = result.addedCount;
-      _cloudChecked = true;
     });
 
     if (result.success) {
@@ -140,6 +142,9 @@ class _HomePageState extends State<HomePage> {
           .where((o) => o.order.warehouseId == _selectedWarehouseId)
           .toList();
     }
+    if (_selectedType != null) {
+      list = list.where((o) => o.order.type == _selectedType).toList();
+    }
     if (_searchKeyword.isNotEmpty) {
       final kw = _searchKeyword.toLowerCase();
       list = list.where((o) {
@@ -161,139 +166,66 @@ class _HomePageState extends State<HomePage> {
 
   /// 下拉刷新
   Future<void> _onRefresh() async {
-    await _loadData();
-  }
-
-  /// 从云端拉取 retain 全量快照（带全屏 Loading，手动触发）
-  Future<void> _pullSnapshot() async {
-    if (!mounted) return;
-
-    // 显示全屏 Loading
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const PopScope(
-        canPop: false,
-        child: Center(child: CircularProgressIndicator()),
-      ),
-    );
-
-    PullResult result;
-    try {
-      result = await SyncService.pullSnapshot();
-    } finally {
-      // 无论成功还是失败，必须关闭 Loading，防止界面锁死
-      if (mounted) Navigator.of(context, rootNavigator: true).pop();
-    }
-
-    // 更新云端状态
-    if (mounted) {
-      setState(() {
-        _cloudNewCount = result.addedCount;
-        _cloudChecked = true;
-      });
-    }
-
-    // 刷新页面
-    await _loadData();
-
-    if (!mounted) return;
-
-    // 出错场景弹窗提示
-    if (!result.success) {
-      final isDnsError = result.message.contains('SocketException') ||
-          result.message.contains('host lookup') ||
-          result.message.contains('No address');
-      final brokerName = 'kf33d077.ala.cn-hangzhou.emqxsl.cn';
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('连接云端失败'),
-          content: Text(
-            isDnsError
-                ? '无法解析 MQTT 服务器地址。\n\n'
-                    'Broker: $brokerName\n\n'
-                    '可能原因：\n'
-                    '1. 手机网络未连接\n'
-                    '2. EMQX 服务已停止\n'
-                    '3. DNS 解析失败，稍后重试'
-                : result.message,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                Navigator.of(dialogContext).pop();
-                // 重试
-                if (mounted) _pullSnapshot();
-              },
-              child: const Text('重试'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('知道了'),
-            ),
-          ],
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result.message),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
+    await _syncRecords();
   }
 
   /// 手动同步（上传 + 下拉合一，先上后下）
   Future<void> _syncRecords() async {
-    if (!mounted) return;
+    if (!mounted || _isManualSyncing) return;
+    setState(() => _isManualSyncing = true);
+    var retryRequested = false;
 
-    // 1. 推本地变更到 Master
-    final pushResult = await SyncService.syncPendingRecords();
+    try {
+      // 1. 推本地变更到 Master
+      final pushResult = await SyncService.syncPendingRecords();
 
-    // 2. 下拉 Master 最新快照
-    final pullResult = await SyncService.pullSnapshot();
-    setState(() {
-      _cloudNewCount = pullResult.addedCount;
-      _cloudChecked = true;
-    });
-    await _loadData();
-
-    // 3. 提示结果
-    if (mounted) {
-      final isSuccess = !pushResult.startsWith('同步失败') && pullResult.success;
-      if (isSuccess) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(pullResult.message),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        // 失败弹窗，提供重试
-        await showDialog<void>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: const Text('同步失败'),
-            content: Text(pushResult),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-                  _syncRecords(); // 重试
-                },
-                child: const Text('重试'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('知道了'),
-              ),
-            ],
-          ),
-        );
+      // 2. 下拉 Master 最新快照
+      final pullResult = await SyncService.pullSnapshot();
+      if (mounted) {
+        setState(() => _cloudNewCount = pullResult.addedCount);
       }
+      await _loadData();
+
+      // 3. 提示结果
+      if (mounted) {
+        final isSuccess = !pushResult.startsWith('同步失败') && pullResult.success;
+        if (isSuccess) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(pullResult.message),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          // 失败弹窗，提供重试
+          final failureMessages = <String>[
+            if (pushResult.startsWith('同步失败')) pushResult,
+            if (!pullResult.success) pullResult.message,
+          ];
+          retryRequested = await showDialog<bool>(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: const Text('同步失败'),
+                  content: Text(failureMessages.join('\n\n')),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(true),
+                      child: const Text('重试'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(false),
+                      child: const Text('知道了'),
+                    ),
+                  ],
+                ),
+              ) ??
+              false;
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _isManualSyncing = false);
     }
+    if (retryRequested && mounted) await _syncRecords();
   }
 
   /// 跳转到新建 Order 页面
@@ -317,7 +249,6 @@ class _HomePageState extends State<HomePage> {
           if (mounted) {
             setState(() {
               _cloudNewCount = r.addedCount;
-              _cloudChecked = true;
             });
             await _loadData();
           }
@@ -425,53 +356,79 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CCTT 库存管理'),
+        toolbarHeight: 50,
+        titleSpacing: 10,
+        title: PopupMenuButton<String>(
+          tooltip: '选择仓库',
+          padding: EdgeInsets.zero,
+          offset: const Offset(0, 44),
+          onSelected: (value) {
+            setState(() {
+              _selectedWarehouseId = value.isEmpty ? null : value;
+            });
+          },
+          itemBuilder: (_) {
+            final totalActive = _orders.where((o) => !o.order.isDeleted).length;
+            return [
+              PopupMenuItem<String>(
+                value: '',
+                child: Text(
+                  '所有仓库（$totalActive）',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              ..._warehouses.map((warehouse) {
+                final count = _orders
+                    .where((o) =>
+                        !o.order.isDeleted &&
+                        o.order.warehouseId == warehouse.id)
+                    .length;
+                return PopupMenuItem<String>(
+                  value: warehouse.id,
+                  child: Text('${warehouse.name}（$count）'),
+                );
+              }),
+            ];
+          },
+          child: Row(
+            children: [
+              const Icon(Icons.warehouse_outlined, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _selectedWarehouseId == null
+                      ? '所有仓库（${_orders.where((o) => !o.order.isDeleted).length}）'
+                      : '${_warehouseName(_selectedWarehouseId!)}（${_orders.where((o) => !o.order.isDeleted && o.order.warehouseId == _selectedWarehouseId).length}）',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              const Icon(Icons.arrow_drop_down),
+            ],
+          ),
+        ),
         actions: [
           IconButton(
-            icon: _unpushedCount > 0
-                ? Badge(
-                    label: Text('$_unpushedCount'),
-                    child: const Icon(Icons.cloud_upload),
-                  )
-                : const Icon(Icons.cloud_upload),
-            tooltip:
-                _unpushedCount > 0 ? '推送到云端（$_unpushedCount 张待推送）' : '推送到云端',
-            onPressed: _syncRecords,
+            icon: const Icon(Icons.add_business),
+            tooltip: '添加仓库',
+            visualDensity: VisualDensity.compact,
+            onPressed: _showAddWarehouseDialog,
           ),
           IconButton(
-            icon: _cloudNewCount > 0
-                ? Badge(
-                    label: Text('$_cloudNewCount'),
-                    backgroundColor: Colors.teal,
-                    child: const Icon(Icons.cloud_download),
-                  )
-                : _cloudChecked
-                    ? const Icon(Icons.cloud_download, color: Colors.green)
-                    : const Icon(Icons.cloud_download),
-            tooltip: _cloudNewCount > 0
-                ? '从云端拉取（$_cloudNewCount 张新单据）'
-                : _cloudChecked
-                    ? '云端已同步，暂无新数据'
-                    : '从云端拉取快照',
-            onPressed: _pullSnapshot,
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: '刷新列表',
-            onPressed: _onRefresh,
-          ),
-          IconButton(
-            icon: const Icon(Icons.analytics_outlined),
-            tooltip: '汇总表',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SummaryPage()),
-              );
-            },
+            icon: _buildSyncIcon(),
+            tooltip: _unpushedCount > 0 || _cloudNewCount > 0
+                ? '同步并刷新（待上传 $_unpushedCount，云端新增 $_cloudNewCount）'
+                : '同步并刷新',
+            visualDensity: VisualDensity.compact,
+            onPressed: _isManualSyncing ? null : _syncRecords,
           ),
           IconButton(
             icon: const Icon(Icons.delete_sweep),
             tooltip: '已作废单据',
+            visualDensity: VisualDensity.compact,
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -483,89 +440,12 @@ class _HomePageState extends State<HomePage> {
               );
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: '设置',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SettingsPage()),
-              );
-            },
-          ),
         ],
       ),
       body: Column(
         children: [
-          // ───────────── 仓库筛选栏 ─────────────
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              border: Border(
-                bottom: BorderSide(
-                  color: Theme.of(context).dividerColor,
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.filter_list, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: PopupMenuButton<String?>(
-                    padding: EdgeInsets.zero,
-                    offset: const Offset(0, 40),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        _selectedWarehouseId == null
-                            ? '所有仓库（${_orders.where((o) => !o.order.isDeleted).length}）'
-                            : '${_warehouseName(_selectedWarehouseId!)}（${_orders.where((o) => !o.order.isDeleted && o.order.warehouseId == _selectedWarehouseId).length}）',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    onSelected: (value) {
-                      if (mounted) setState(() => _selectedWarehouseId = value);
-                    },
-                    itemBuilder: (_) {
-                      final totalActive =
-                          _orders.where((o) => !o.order.isDeleted).length;
-                      return [
-                        PopupMenuItem<String?>(
-                          value: null,
-                          child: Text('所有仓库（$totalActive）',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.bold)),
-                        ),
-                        ..._warehouses.map((w) {
-                          final count = _orders
-                              .where((o) =>
-                                  !o.order.isDeleted &&
-                                  o.order.warehouseId == w.id)
-                              .length;
-                          return PopupMenuItem<String?>(
-                            value: w.id,
-                            child: Text('${w.name}（$count）'),
-                          );
-                        }),
-                      ];
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.add_business),
-                  tooltip: '添加仓库',
-                  onPressed: _showAddWarehouseDialog,
-                ),
-              ],
-            ),
-          ),
+          // ───────────── 单据类型筛选 ─────────────
+          _buildTypeFilter(),
 
           // ───────────── 列表区域 ─────────────
           Expanded(
@@ -585,28 +465,242 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            FloatingActionButton.extended(
-              heroTag: 'search',
-              onPressed: _showSearchDialog,
-              icon: const Icon(Icons.search),
-              label: Text(_searchKeyword.isNotEmpty ? '搜索中' : '查询'),
-              backgroundColor: _searchKeyword.isNotEmpty ? Colors.teal : null,
-            ),
-            FloatingActionButton.extended(
-              heroTag: 'add',
-              onPressed: _navigateToAddOrder,
-              icon: const Icon(Icons.add),
-              label: const Text('新建'),
-            ),
-          ],
+      bottomNavigationBar: _buildBottomNavigationBar(),
+    );
+  }
+
+  Widget _buildSyncIcon() {
+    if (_isManualSyncing) {
+      return const SizedBox(
+        width: 22,
+        height: 22,
+        child: CircularProgressIndicator(strokeWidth: 2.4),
+      );
+    }
+
+    final pendingCount = _unpushedCount + _cloudNewCount;
+    if (pendingCount > 0) {
+      return Badge(
+        label: Text('$pendingCount'),
+        child: const Icon(Icons.sync),
+      );
+    }
+    return const Icon(Icons.sync);
+  }
+
+  Widget _buildTypeFilter() {
+    final types = <MovementType?>[
+      null,
+      MovementType.inbound,
+      MovementType.outbound,
+      MovementType.supply,
+    ];
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).dividerColor),
         ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      child: Row(
+        children: types.map((type) {
+          final selected = _selectedType == type;
+          final color = _typeFilterColor(type);
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(
+                right: type == MovementType.supply ? 0 : 6,
+              ),
+              child: InkWell(
+                onTap: () => setState(() => _selectedType = type),
+                borderRadius: BorderRadius.circular(10),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? color.withValues(alpha: 0.12)
+                        : Theme.of(context).colorScheme.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: selected
+                          ? color
+                          : Theme.of(context).colorScheme.outlineVariant,
+                      width: selected ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${_typeFilterLabel(type)} ${_typeFilterCount(type)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: selected
+                            ? color
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  int _typeFilterCount(MovementType? type) {
+    return _orders.where((detail) {
+      final order = detail.order;
+      if (order.isDeleted) return false;
+      if (_selectedWarehouseId != null &&
+          order.warehouseId != _selectedWarehouseId) {
+        return false;
+      }
+      return type == null || order.type == type;
+    }).length;
+  }
+
+  String _typeFilterLabel(MovementType? type) {
+    return switch (type) {
+      null => '全部',
+      MovementType.inbound => '入库',
+      MovementType.outbound => '出库',
+      MovementType.supply => '进货',
+    };
+  }
+
+  Color _typeFilterColor(MovementType? type) {
+    return switch (type) {
+      null => Colors.teal,
+      MovementType.inbound => Colors.green,
+      MovementType.outbound => Colors.red,
+      MovementType.supply => Colors.orange.shade800,
+    };
+  }
+
+  Widget _buildBottomNavigationBar() {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: colors.surface,
+      elevation: 12,
+      child: SafeArea(
+        top: false,
+        child: Container(
+          height: 68,
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: colors.outlineVariant),
+            ),
+          ),
+          child: Row(
+            children: [
+              _buildNavItem(
+                icon: Icons.home_rounded,
+                label: '首页',
+                selected: _searchKeyword.isEmpty,
+                onTap: () {},
+              ),
+              _buildNavItem(
+                icon: Icons.analytics_outlined,
+                label: '汇总',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SummaryPage()),
+                  );
+                },
+              ),
+              Expanded(
+                child: Semantics(
+                  button: true,
+                  label: '新增单据',
+                  child: InkResponse(
+                    onTap: _navigateToAddOrder,
+                    radius: 30,
+                    child: Center(
+                      child: Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          color: colors.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.add_rounded,
+                          size: 32,
+                          color: colors.onPrimary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              _buildNavItem(
+                icon: Icons.search_rounded,
+                label: '查询',
+                selected: _searchKeyword.isNotEmpty,
+                onTap: _showSearchDialog,
+              ),
+              _buildNavItem(
+                icon: Icons.settings_outlined,
+                label: '设置',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SettingsPage()),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavItem({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool selected = false,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    final foreground = selected ? colors.primary : colors.onSurfaceVariant;
+
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: selected ? colors.primaryContainer : Colors.transparent,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 22, color: foreground),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 10.5,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
