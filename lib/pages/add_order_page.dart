@@ -154,6 +154,7 @@ class _AddOrderPageState extends State<AddOrderPage> {
             builder: (_) => OcrBatchReviewPage(
               orders: result.orders,
               warehouseId: warehouseId,
+              documentType: result.documentType,
               globalWarnings: result.warnings,
             ),
           ),

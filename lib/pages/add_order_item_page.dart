@@ -18,6 +18,7 @@ class AddOrderItemPage extends StatefulWidget {
   final List<OrderItem>? existingItems;
   final List<OrderFee>? existingFees;
   final bool returnToPrevious;
+  final bool allowZeroPrice;
 
   const AddOrderItemPage({
     super.key,
@@ -25,6 +26,7 @@ class AddOrderItemPage extends StatefulWidget {
     this.existingItems,
     this.existingFees,
     this.returnToPrevious = false,
+    this.allowZeroPrice = false,
   });
 
   @override
@@ -65,6 +67,15 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
     return gross - tare;
   }
 
+  double? _parseUnitPrice(String value) {
+    final text = value.trim();
+    if (text.isEmpty && widget.allowZeroPrice) return 0;
+    return double.tryParse(text);
+  }
+
+  bool _isInvalidUnitPrice(double? price) =>
+      price == null || price < 0 || (!widget.allowZeroPrice && price <= 0);
+
   double get _itemAmount {
     final qty = double.tryParse(_quantityController.text) ?? 0;
     final price = double.tryParse(_unitPriceController.text) ?? 0;
@@ -93,9 +104,9 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
       _showMsg('净重必须大于 0');
       return;
     }
-    final price = double.tryParse(_unitPriceController.text);
-    if (price == null || price <= 0) {
-      _showMsg('请输入有效单价');
+    final price = _parseUnitPrice(_unitPriceController.text);
+    if (_isInvalidUnitPrice(price)) {
+      _showMsg(widget.allowZeroPrice ? '单价不能小于 0' : '请输入有效单价');
       return;
     }
 
@@ -103,7 +114,7 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
       orderId: widget.order.id,
       itemName: name,
       quantity: _grossWeightController.text.isNotEmpty ? _netWeight : qty,
-      unitPrice: price,
+      unitPrice: price!,
       grossWeight: double.tryParse(_grossWeightController.text) ?? 0,
       tareWeight: double.tryParse(_tareWeightController.text) ?? 0,
       totalPieces: int.tryParse(_totalPiecesController.text),
@@ -247,7 +258,10 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
                     controller: priceController,
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: '单价 (元/吨)'),
+                    decoration: InputDecoration(
+                      labelText:
+                          widget.allowZeroPrice ? '单价 (元/吨，可为 0)' : '单价 (元/吨)',
+                    ),
                   ),
                   const SizedBox(height: 8),
                   TextField(
@@ -277,7 +291,7 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
               FilledButton(
                 onPressed: () {
                   final name = nameController.text.trim();
-                  final price = double.tryParse(priceController.text);
+                  final price = _parseUnitPrice(priceController.text);
                   final parsedGross = double.tryParse(grossController.text);
                   final parsedTare = double.tryParse(tareController.text) ?? 0;
                   final parsedQuantity =
@@ -286,8 +300,9 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
                     setDialogState(() => validationMessage = '货物名称不能为空');
                     return;
                   }
-                  if (price == null || price <= 0) {
-                    setDialogState(() => validationMessage = '请输入有效单价');
+                  if (_isInvalidUnitPrice(price)) {
+                    setDialogState(() => validationMessage =
+                        widget.allowZeroPrice ? '单价不能小于 0' : '请输入有效单价');
                     return;
                   }
                   if (usesGrossWeight &&
@@ -314,7 +329,7 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
                       orderId: item.orderId,
                       itemName: name,
                       quantity: quantity,
-                      unitPrice: price,
+                      unitPrice: price!,
                       grossWeight: usesGrossWeight ? parsedGross! : 0.0,
                       tareWeight: usesGrossWeight ? parsedTare : 0.0,
                       totalPieces: item.totalPieces,
@@ -364,7 +379,7 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
       final incompleteItems = _items.where((item) =>
           item.itemName.trim().isEmpty ||
           item.quantity <= 0 ||
-          item.unitPrice <= 0);
+          (widget.allowZeroPrice ? item.unitPrice < 0 : item.unitPrice <= 0));
       final incompleteFees =
           _fees.where((fee) => fee.feeName.trim().isEmpty || fee.amount <= 0);
       if (_items.isEmpty ||
@@ -685,8 +700,10 @@ class _AddOrderItemPageState extends State<AddOrderItemPage> {
                           child: TextField(
                               controller: _unitPriceController,
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                  labelText: '单价(元/吨) *',
+                              decoration: InputDecoration(
+                                  labelText: widget.allowZeroPrice
+                                      ? '单价(元/吨，可为0)'
+                                      : '单价(元/吨) *',
                                   border: OutlineInputBorder(),
                                   isDense: true),
                               onChanged: (_) => setState(() {}))),

@@ -10,12 +10,14 @@ import 'add_order_item_page.dart';
 class OcrBatchReviewPage extends StatefulWidget {
   final List<OcrOrder> orders;
   final String warehouseId;
+  final String? documentType;
   final List<String> globalWarnings;
 
   const OcrBatchReviewPage({
     super.key,
     required this.orders,
     required this.warehouseId,
+    this.documentType,
     this.globalWarnings = const [],
   });
 
@@ -25,11 +27,26 @@ class OcrBatchReviewPage extends StatefulWidget {
 
 class _OcrBatchReviewPageState extends State<OcrBatchReviewPage> {
   late final List<bool> _done;
+  final _productNameController = TextEditingController();
+
+  bool get _isProduction => widget.documentType == 'production';
+
+  double get _productionWeight => widget.orders.fold(
+        0.0,
+        (sum, order) =>
+            sum + order.items.fold(0.0, (total, item) => total + item.quantity),
+      );
 
   @override
   void initState() {
     super.initState();
     _done = List<bool>.filled(widget.orders.length, false);
+  }
+
+  @override
+  void dispose() {
+    _productNameController.dispose();
+    super.dispose();
   }
 
   MovementType _movementType(String value) => switch (value) {
@@ -49,11 +66,15 @@ class _OcrBatchReviewPageState extends State<OcrBatchReviewPage> {
     if (order.parsedDate() == null) missing.add('日期');
     if (order.partnerName.trim().isEmpty) missing.add('交易对象');
     if (order.items.isEmpty) missing.add('货物明细');
-    if (order.items.any((item) => item.itemName.trim().isEmpty)) {
+    if (_isProduction) {
+      if (_productNameController.text.trim().isEmpty) missing.add('批次品名');
+    } else if (order.items.any((item) => item.itemName.trim().isEmpty)) {
       missing.add('品名');
     }
     if (order.items.any((item) => item.quantity <= 0)) missing.add('重量');
-    if (order.items.any((item) => item.unitPrice <= 0)) missing.add('单价');
+    if (!_isProduction && order.items.any((item) => item.unitPrice <= 0)) {
+      missing.add('单价');
+    }
     if (order.fees
         .any((fee) => fee.feeName.trim().isEmpty || fee.amount <= 0)) {
       missing.add('费用');
@@ -72,100 +93,112 @@ class _OcrBatchReviewPageState extends State<OcrBatchReviewPage> {
 
   Future<void> _edit(int index) async {
     final ocr = widget.orders[index];
-    final partnerController =
-        TextEditingController(text: ocr.partnerName.trim());
+    final productionProduct = _productNameController.text.trim();
+    if (_isProduction && productionProduct.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先填写本批次品名')),
+      );
+      return;
+    }
+    final partnerController = TextEditingController(
+      text: _isProduction ? '本厂生产' : ocr.partnerName.trim(),
+    );
     DateTime? selectedDate = ocr.parsedDate();
-    var selectedType = _movementType(ocr.type);
+    var selectedType =
+        _isProduction ? MovementType.inbound : _movementType(ocr.type);
     String? validationMessage;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text('核对第 ${index + 1} 笔基本信息'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: partnerController,
-                  decoration: const InputDecoration(
-                    labelText: '交易对象 *',
-                    border: OutlineInputBorder(),
+    bool? confirmed = _isProduction && selectedDate != null;
+    if (confirmed != true) {
+      confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: Text('核对第 ${index + 1} 笔基本信息'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: partnerController,
+                    decoration: const InputDecoration(
+                      labelText: '交易对象 *',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<MovementType>(
-                  initialValue: selectedType,
-                  decoration: const InputDecoration(
-                    labelText: '单据类型',
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<MovementType>(
+                    initialValue: selectedType,
+                    decoration: const InputDecoration(
+                      labelText: '单据类型',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: MovementType.values
+                        .map((type) => DropdownMenuItem(
+                              value: type,
+                              child: Text(_typeLabel(type)),
+                            ))
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) selectedType = value;
+                    },
                   ),
-                  items: MovementType.values
-                      .map((type) => DropdownMenuItem(
-                            value: type,
-                            child: Text(_typeLabel(type)),
-                          ))
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) selectedType = value;
-                  },
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.calendar_today_outlined, size: 18),
-                  label: Text(
-                    selectedDate == null
-                        ? '请选择日期 *'
-                        : '${selectedDate!.year}-${selectedDate!.month.toString().padLeft(2, '0')}-${selectedDate!.day.toString().padLeft(2, '0')}',
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.calendar_today_outlined, size: 18),
+                    label: Text(
+                      selectedDate == null
+                          ? '请选择日期 *'
+                          : '${selectedDate!.year}-${selectedDate!.month.toString().padLeft(2, '0')}-${selectedDate!.day.toString().padLeft(2, '0')}',
+                    ),
+                    onPressed: () async {
+                      final now = DateTime.now();
+                      final picked = await showDatePicker(
+                        context: dialogContext,
+                        initialDate: selectedDate ?? now,
+                        firstDate: DateTime(2020),
+                        lastDate: now,
+                      );
+                      if (picked != null && dialogContext.mounted) {
+                        setDialogState(() => selectedDate = picked);
+                      }
+                    },
                   ),
-                  onPressed: () async {
-                    final now = DateTime.now();
-                    final picked = await showDatePicker(
-                      context: dialogContext,
-                      initialDate: selectedDate ?? now,
-                      firstDate: DateTime(2020),
-                      lastDate: now,
-                    );
-                    if (picked != null && dialogContext.mounted) {
-                      setDialogState(() => selectedDate = picked);
-                    }
-                  },
-                ),
-                if (validationMessage != null) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    validationMessage!,
-                    style: const TextStyle(color: Colors.red, fontSize: 12),
-                  ),
+                  if (validationMessage != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      validationMessage!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  if (partnerController.text.trim().isEmpty) {
+                    setDialogState(() => validationMessage = '请填写交易对象');
+                    return;
+                  }
+                  if (selectedDate == null) {
+                    setDialogState(() => validationMessage = '请选择单据日期');
+                    return;
+                  }
+                  Navigator.pop(dialogContext, true);
+                },
+                child: const Text('下一步核对明细'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (partnerController.text.trim().isEmpty) {
-                  setDialogState(() => validationMessage = '请填写交易对象');
-                  return;
-                }
-                if (selectedDate == null) {
-                  setDialogState(() => validationMessage = '请选择单据日期');
-                  return;
-                }
-                Navigator.pop(dialogContext, true);
-              },
-              child: const Text('下一步核对明细'),
-            ),
-          ],
         ),
-      ),
-    );
+      );
+    }
 
     final partnerName = partnerController.text.trim();
     partnerController.dispose();
@@ -192,7 +225,7 @@ class _OcrBatchReviewPageState extends State<OcrBatchReviewPage> {
             final item = entry.value;
             return OrderItem(
               orderId: order.id,
-              itemName: item.itemName,
+              itemName: _isProduction ? productionProduct : item.itemName,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               grossWeight: item.grossWeight,
@@ -215,6 +248,7 @@ class _OcrBatchReviewPageState extends State<OcrBatchReviewPage> {
             );
           }).toList(),
           returnToPrevious: true,
+          allowZeroPrice: _isProduction,
         ),
       ),
     );
@@ -233,6 +267,37 @@ class _OcrBatchReviewPageState extends State<OcrBatchReviewPage> {
       appBar: AppBar(title: Text('OCR 批量审核（${widget.orders.length} 笔）')),
       body: Column(
         children: [
+          if (_isProduction)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.teal.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.teal.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '${widget.orders.length} 天产量，合计 ${_formatNumber(_productionWeight)} kg',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _productNameController,
+                    decoration: const InputDecoration(
+                      labelText: '本批次品名 *',
+                      helperText: '填写一次，自动应用到全部日期',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ],
+              ),
+            ),
           if (widget.globalWarnings.isNotEmpty)
             Container(
               width: double.infinity,
@@ -256,8 +321,11 @@ class _OcrBatchReviewPageState extends State<OcrBatchReviewPage> {
                 final order = widget.orders[index];
                 final missing = _missingFields(order);
                 final warnings = order.warnings;
-                final details = StringBuffer(
-                    '${order.items.length} 项货物，${order.fees.length} 项费用');
+                final quantity = order.items
+                    .fold<double>(0, (sum, item) => sum + item.quantity);
+                final details = StringBuffer(_isProduction
+                    ? '日产量 ${_formatNumber(quantity)} kg'
+                    : '${order.items.length} 项货物，${order.fees.length} 项费用');
                 if (missing.isNotEmpty) {
                   details.write('\n待填写：${missing.join('、')}');
                 }
@@ -299,5 +367,13 @@ class _OcrBatchReviewPageState extends State<OcrBatchReviewPage> {
         ],
       ),
     );
+  }
+
+  String _formatNumber(double value) {
+    if (value == value.roundToDouble()) return value.toInt().toString();
+    return value
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
   }
 }

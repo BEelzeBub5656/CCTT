@@ -164,5 +164,43 @@ void main() {
       expect(response.orders.last.items.single.quantity, 0);
       expect(response.orders.last.warnings.single, contains('请手动填写'));
     });
+
+    test('parses daily production rows as zero-price inbound orders', () {
+      final response = OcrResponse.fromJson({
+        'success': true,
+        'document_type': 'production',
+        'productionTotal': 1951,
+        'orders': [
+          {
+            'partnerName': '本厂生产',
+            'type': 'inbound',
+            'date_hint': '2026-03-13',
+            'items': [
+              {'itemName': '', 'quantity': 927, 'unitPrice': 0},
+            ],
+            'remark': '生产入库',
+          },
+          {
+            'partnerName': '本厂生产',
+            'type': 'inbound',
+            'date_hint': '2026-03-14',
+            'items': [
+              {'itemName': '', 'quantity': 1024, 'unitPrice': 0},
+            ],
+            'warning': ['右侧日产量未识别，已按当日明细重量合计'],
+          },
+        ],
+      });
+
+      expect(response.documentType, 'production');
+      expect(response.orders, hasLength(2));
+      expect(response.orders.first.partnerName, '本厂生产');
+      expect(response.orders.first.type, 'inbound');
+      expect(response.orders.first.parsedDate(), DateTime(2026, 3, 13));
+      expect(response.orders.first.items.single.itemName, isEmpty);
+      expect(response.orders.first.items.single.quantity, 927);
+      expect(response.orders.first.items.single.unitPrice, 0);
+      expect(response.orders.last.warnings.single, contains('明细重量合计'));
+    });
   });
 }
