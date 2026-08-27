@@ -237,5 +237,6 @@ class OrderDetail {
   double get totalItemAmount => items.fold(0.0, (s, i) => s + i.amount);
   double get totalFeeAmount => fees.fold(0.0, (s, f) => s + f.amount);
   double get totalAmount => totalItemAmount + totalFeeAmount;
+  double get totalQuantity => items.fold(0.0, (s, i) => s + i.quantity);
   int get totalPiecesCount => items.fold(0, (s, i) => s + (i.totalPieces ?? 0));
 }

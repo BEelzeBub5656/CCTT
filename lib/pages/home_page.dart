@@ -901,7 +901,10 @@ class _HomePageState extends State<HomePage> {
                   color:
                       isDeleted ? Colors.grey.shade400 : Colors.grey.shade700,
                   decoration: isDeleted ? TextDecoration.lineThrough : null)),
-          Text('${o.partnerName}  |  ¥${d.totalAmount.toStringAsFixed(2)}',
+          Text(
+              isInbound
+                  ? '${o.partnerName}  |  重量：${d.totalQuantity} kg'
+                  : '${o.partnerName}  |  ¥${d.totalAmount.toStringAsFixed(2)}',
               style: TextStyle(
                   fontSize: 12,
                   color: isDeleted ? Colors.grey.shade400 : Colors.teal)),
@@ -1028,7 +1031,9 @@ class _DeletedOrdersPage extends StatelessWidget {
                       ],
                     ),
                     subtitle: Text(
-                      '${warehouseName(o.warehouseId)}  •  ${_fmt(o.timestamp)}  |  ${o.partnerName}  |  ¥${d.totalAmount.toStringAsFixed(2)}',
+                      o.type == MovementType.inbound
+                          ? '${warehouseName(o.warehouseId)}  •  ${_fmt(o.timestamp)}  |  ${o.partnerName}  |  重量：${d.totalQuantity} kg'
+                          : '${warehouseName(o.warehouseId)}  •  ${_fmt(o.timestamp)}  |  ${o.partnerName}  |  ¥${d.totalAmount.toStringAsFixed(2)}',
                       style: const TextStyle(
                         fontSize: 12,
                         color: Colors.grey,
