@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'pages/home_page.dart';
 import 'services/storage_cleanup_service.dart';
+import 'theme/cctt_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,10 +32,7 @@ class CcttApp extends StatelessWidget {
         Locale('zh', 'CN'),
         Locale('en', 'US'),
       ],
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-        useMaterial3: true,
-      ),
+      theme: buildCcttTheme(),
       home: const HomePage(),
     );
   }
