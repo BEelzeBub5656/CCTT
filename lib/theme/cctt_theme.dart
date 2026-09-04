@@ -30,6 +30,10 @@ ColorScheme _buildScheme() {
     onErrorContainer: CcttColors.onErrorContainerInk,
     surface: CcttColors.surface,
     onSurface: CcttColors.ink,
+    surfaceContainerLowest: CcttColors.surfaceContainerLowest,
+    surfaceContainerLow: CcttColors.surfaceContainerLow,
+    surfaceContainer: CcttColors.surfaceContainer,
+    surfaceContainerHigh: CcttColors.surfaceContainerHigh,
     surfaceContainerHighest: CcttColors.surfaceVariant,
     onSurfaceVariant: CcttColors.onSurfaceVariant,
     outline: CcttColors.outline,
@@ -40,62 +44,104 @@ ColorScheme _buildScheme() {
 /// 构建 CCTT 亮色主题。
 ThemeData buildCcttTheme() {
   final ColorScheme scheme = _buildScheme();
+  final TextTheme baseTextTheme = ThemeData.light().textTheme.apply(
+        bodyColor: CcttColors.ink,
+        displayColor: CcttColors.ink,
+      );
 
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: CcttColors.surface,
     extensions: const <ThemeExtension<dynamic>>[CcttBrandColors.light],
-
-    appBarTheme: const AppBarTheme(
+    textTheme: baseTextTheme.copyWith(
+      headlineSmall: baseTextTheme.headlineSmall?.copyWith(
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.1,
+      ),
+      titleLarge: baseTextTheme.titleLarge?.copyWith(
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.1,
+      ),
+      titleMedium: baseTextTheme.titleMedium?.copyWith(
+        fontWeight: FontWeight.w600,
+      ),
+      titleSmall: baseTextTheme.titleSmall?.copyWith(
+        fontWeight: FontWeight.w600,
+      ),
+      bodyLarge: baseTextTheme.bodyLarge?.copyWith(height: 1.4),
+      bodyMedium: baseTextTheme.bodyMedium?.copyWith(height: 1.4),
+      bodySmall: baseTextTheme.bodySmall?.copyWith(height: 1.35),
+      labelLarge: baseTextTheme.labelLarge?.copyWith(
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    appBarTheme: AppBarTheme(
       backgroundColor: CcttColors.surface,
       foregroundColor: CcttColors.ink,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
+      scrolledUnderElevation: 1,
+      shadowColor: CcttColors.ink.withValues(alpha: 0.08),
       centerTitle: true,
+      titleTextStyle: baseTextTheme.titleLarge?.copyWith(
+        color: CcttColors.ink,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.1,
+      ),
+      iconTheme: const IconThemeData(color: CcttColors.onSurfaceVariant),
     ),
-
     cardTheme: CardThemeData(
       color: CcttColors.surfaceContainer,
       surfaceTintColor: Colors.transparent,
-      elevation: 0,
+      elevation: 0.5,
+      shadowColor: CcttColors.ink.withValues(alpha: 0.12),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         side: const BorderSide(color: CcttColors.outlineVariant),
       ),
       margin: EdgeInsets.zero,
     ),
-
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: CcttColors.surface,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         borderSide: const BorderSide(color: CcttColors.outline),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         borderSide: const BorderSide(color: CcttColors.outline),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         borderSide: const BorderSide(color: CcttColors.brandDeep, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         borderSide: const BorderSide(color: CcttColors.redDeep),
       ),
       labelStyle: const TextStyle(color: CcttColors.onSurfaceVariant),
       hintStyle: const TextStyle(color: CcttColors.onSurfaceVariant),
     ),
-
     dividerTheme: const DividerThemeData(
       color: CcttColors.outlineVariant,
       thickness: 1,
       space: 1,
     ),
-
+    listTileTheme: const ListTileThemeData(
+      iconColor: CcttColors.onSurfaceVariant,
+      textColor: CcttColors.ink,
+      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+    ),
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(
+        foregroundColor: CcttColors.onSurfaceVariant,
+        minimumSize: const Size(40, 40),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: CcttColors.surface,
       surfaceTintColor: Colors.transparent,
@@ -115,18 +161,74 @@ ThemeData buildCcttTheme() {
         );
       }),
     ),
-
     snackBarTheme: SnackBarThemeData(
       backgroundColor: CcttColors.ink,
       contentTextStyle: const TextStyle(color: Colors.white),
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ),
-
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         minimumSize: const Size(48, 48),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        elevation: 0,
+        minimumSize: const Size(48, 46),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(48, 46),
+        side: const BorderSide(color: CcttColors.outlineVariant),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: CcttColors.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titleTextStyle: baseTextTheme.titleLarge?.copyWith(
+        color: CcttColors.ink,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: CcttColors.surface,
+      surfaceTintColor: Colors.transparent,
+      modalBackgroundColor: CcttColors.surface,
+      showDragHandle: true,
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: CcttColors.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: CcttColors.surfaceContainerLow,
+      selectedColor: CcttColors.brandLight,
+      side: const BorderSide(color: CcttColors.outlineVariant),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      labelStyle: const TextStyle(color: CcttColors.onSurfaceVariant),
+    ),
+    progressIndicatorTheme: const ProgressIndicatorThemeData(
+      color: CcttColors.brandDeep,
+      linearTrackColor: CcttColors.brandLight,
+      circularTrackColor: CcttColors.brandLight,
+    ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      backgroundColor: CcttColors.brandDeep,
+      foregroundColor: Colors.white,
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
       ),
     ),
   );

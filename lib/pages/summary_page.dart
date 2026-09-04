@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../services/summary_demo_data_service.dart';
 import '../services/summary_service.dart';
+import '../theme/cctt_colors.dart';
 
 class SummaryPage extends StatefulWidget {
   const SummaryPage({super.key});
@@ -296,6 +297,8 @@ class _SummaryPageState extends State<SummaryPage> {
   }
 
   Widget _buildReport(SummaryReport report) {
+    final brand =
+        Theme.of(context).extension<CcttBrandColors>() ?? CcttBrandColors.light;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -313,7 +316,7 @@ class _SummaryPageState extends State<SummaryPage> {
           title: '出货汇总',
           subtitle: '出库单据总计',
           icon: Icons.north_east,
-          color: Colors.deepOrange,
+          color: brand.redDeep,
           totals: report.outbound,
         ),
         const SizedBox(height: 14),
@@ -321,7 +324,7 @@ class _SummaryPageState extends State<SummaryPage> {
           title: '入库汇总',
           subtitle: '入库总计及品类明细',
           icon: Icons.south_west,
-          color: Colors.green,
+          color: brand.greenDeep,
           totals: report.inbound,
           children: _buildCategoryList(report.inboundCategories),
         ),
@@ -507,6 +510,8 @@ class _SummaryPageState extends State<SummaryPage> {
   }
 
   Widget _buildSupplySection(SummaryReport report) {
+    final brand =
+        Theme.of(context).extension<CcttBrandColors>() ?? CcttBrandColors.light;
     return Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
@@ -519,10 +524,10 @@ class _SummaryPageState extends State<SummaryPage> {
               '进货汇总',
               '按客户及品类展开',
               Icons.local_shipping_outlined,
-              Colors.blue,
+              brand.blueDeep,
             ),
             const SizedBox(height: 14),
-            _buildTotals(report.supply, Colors.blue),
+            _buildTotals(report.supply, brand.blueDeep),
             if (report.supply.feeAmount != 0) ...[
               const SizedBox(height: 8),
               Text(

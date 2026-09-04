@@ -5,6 +5,7 @@ import '../models/order.dart';
 import '../models/stock_movement.dart';
 import '../models/warehouse.dart';
 import '../services/sync_service.dart';
+import '../theme/cctt_colors.dart';
 import '../widgets/update_dialog.dart';
 import 'add_order_page.dart';
 import 'order_detail_page.dart';
@@ -577,11 +578,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   Color _typeFilterColor(MovementType? type) {
+    final brand =
+        Theme.of(context).extension<CcttBrandColors>() ?? CcttBrandColors.light;
     return switch (type) {
-      null => Colors.teal,
-      MovementType.inbound => Colors.green,
-      MovementType.outbound => Colors.red,
-      MovementType.supply => Colors.orange.shade800,
+      null => brand.brandDeep,
+      MovementType.inbound => brand.greenDeep,
+      MovementType.outbound => brand.redDeep,
+      MovementType.supply => brand.amberDeep,
     };
   }
 
@@ -589,7 +592,8 @@ class _HomePageState extends State<HomePage> {
     final colors = Theme.of(context).colorScheme;
     return Material(
       color: colors.surface,
-      elevation: 12,
+      elevation: 10,
+      shadowColor: CcttColors.ink.withValues(alpha: 0.14),
       child: SafeArea(
         top: false,
         child: Container(
@@ -628,8 +632,26 @@ class _HomePageState extends State<HomePage> {
                         width: 52,
                         height: 52,
                         decoration: BoxDecoration(
-                          color: colors.primary,
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              CcttColors.brandGlow,
+                              CcttColors.brandDeep,
+                            ],
+                          ),
                           shape: BoxShape.circle,
+                          border: Border.all(
+                            color: colors.surface,
+                            width: 3,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: colors.primary.withValues(alpha: 0.28),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
                         ),
                         child: Icon(
                           Icons.add_rounded,
@@ -783,16 +805,30 @@ class _HomePageState extends State<HomePage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.inbox, size: 64, color: Colors.grey),
+                  Container(
+                    width: 76,
+                    height: 76,
+                    decoration: const BoxDecoration(
+                      color: CcttColors.brandLight,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.inventory_2_outlined,
+                      size: 38,
+                      color: CcttColors.brandDeep,
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     _selectedWarehouseId == null ? '暂无单据' : '该仓库暂无单据',
-                    style: const TextStyle(fontSize: 16, color: Colors.grey),
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    '点击右下角按钮添加第一张单据',
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  Text(
+                    '点击下方中间的加号添加第一张单据',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                   ),
                   const SizedBox(height: 16),
                   if (_warehouses.isEmpty)
@@ -815,6 +851,15 @@ class _HomePageState extends State<HomePage> {
     final o = d.order;
     final isInbound = o.type == MovementType.inbound;
     final isDeleted = o.isDeleted;
+    final brand =
+        Theme.of(context).extension<CcttBrandColors>() ?? CcttBrandColors.light;
+    final businessColor = switch (o.type) {
+      MovementType.inbound => brand.greenDeep,
+      MovementType.outbound => brand.redDeep,
+      MovementType.supply => brand.amberDeep,
+    };
+    final syncColor =
+        o.syncStatus == SyncStatus.synced ? brand.greenDeep : brand.amberDeep;
     final displayTitle = d.items.isNotEmpty
         ? d.items.map((i) => i.itemName).toSet().join('、')
         : o.partnerName;
@@ -825,110 +870,110 @@ class _HomePageState extends State<HomePage> {
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      color: isDeleted ? Colors.grey.shade50 : null,
-      child: ListTile(
-        onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => OrderDetailPage(orderId: o.id))),
-        leading: CircleAvatar(
-            backgroundColor: o.syncStatus == SyncStatus.synced
-                ? Colors.green.shade100
-                : Colors.orange.shade100,
+      color:
+          isDeleted ? Theme.of(context).colorScheme.surfaceContainerLow : null,
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(
+              color: isDeleted
+                  ? Theme.of(context).colorScheme.outline
+                  : businessColor,
+              width: 4,
+            ),
+          ),
+        ),
+        child: ListTile(
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => OrderDetailPage(orderId: o.id))),
+          leading: CircleAvatar(
+            backgroundColor: syncColor.withValues(alpha: 0.12),
             child: Icon(
-                o.syncStatus == SyncStatus.synced
-                    ? Icons.check_circle
-                    : Icons.sync,
-                color: o.syncStatus == SyncStatus.synced
-                    ? Colors.green.shade800
-                    : Colors.orange.shade800)),
-        title: Row(children: [
-          Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              o.syncStatus == SyncStatus.synced
+                  ? Icons.cloud_done_outlined
+                  : Icons.cloud_sync_outlined,
+              color: syncColor,
+            ),
+          ),
+          title: Row(children: [
+            Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                    color: businessColor.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: businessColor.withValues(alpha: 0.45),
+                    )),
+                child: Text(
+                    isInbound
+                        ? '入库'
+                        : o.type == MovementType.outbound
+                            ? '出库'
+                            : '进货',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: businessColor))),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Text(displayTitle,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        decoration:
+                            isDeleted ? TextDecoration.lineThrough : null,
+                        color: isDeleted ? Colors.grey.shade500 : null))),
+            if (isDeleted)
+              Container(
+                  margin: const EdgeInsets.only(left: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                      border: Border.all(color: Colors.red, width: 1.5),
+                      borderRadius: BorderRadius.circular(4)),
+                  child: const Text('已作废',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red))),
+          ]),
+          subtitle:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const SizedBox(height: 4),
+            Text(
+                '${_warehouseName(o.warehouseId)}  •  $ts${d.items.length > 1 ? "  •  ${d.items.length}项货物" : ""}',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: isDeleted
+                        ? Theme.of(context).colorScheme.outline
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                    decoration: isDeleted ? TextDecoration.lineThrough : null)),
+            Text(
+                isInbound
+                    ? '${o.partnerName}  |  重量：${d.totalQuantity} kg'
+                    : '${o.partnerName}  |  ¥${d.totalAmount.toStringAsFixed(2)}',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: isDeleted
+                        ? Theme.of(context).colorScheme.outline
+                        : businessColor,
+                    fontWeight: FontWeight.w600)),
+          ]),
+          trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                  color: isInbound
-                      ? Colors.green.shade50
-                      : o.type == MovementType.outbound
-                          ? Colors.red.shade50
-                          : Colors.orange.shade50,
+                  color: syncColor.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                      color: isInbound
-                          ? Colors.green
-                          : o.type == MovementType.outbound
-                              ? Colors.red
-                              : Colors.orange)),
-              child: Text(
-                  isInbound
-                      ? '入库'
-                      : o.type == MovementType.outbound
-                          ? '出库'
-                          : '进货',
+                    color: syncColor.withValues(alpha: 0.55),
+                  )),
+              child: Text(o.syncStatus == SyncStatus.synced ? '已同步' : '未同步',
                   style: TextStyle(
+                      color: syncColor,
                       fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: isInbound
-                          ? Colors.green.shade800
-                          : o.type == MovementType.outbound
-                              ? Colors.red.shade800
-                              : Colors.orange.shade800))),
-          const SizedBox(width: 8),
-          Expanded(
-              child: Text(displayTitle,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      decoration: isDeleted ? TextDecoration.lineThrough : null,
-                      color: isDeleted ? Colors.grey.shade500 : null))),
-          if (isDeleted)
-            Container(
-                margin: const EdgeInsets.only(left: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                    border: Border.all(color: Colors.red, width: 1.5),
-                    borderRadius: BorderRadius.circular(4)),
-                child: const Text('已作废',
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.red))),
-        ]),
-        subtitle:
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const SizedBox(height: 4),
-          Text(
-              '${_warehouseName(o.warehouseId)}  •  $ts${d.items.length > 1 ? "  •  ${d.items.length}项货物" : ""}',
-              style: TextStyle(
-                  fontSize: 12,
-                  color:
-                      isDeleted ? Colors.grey.shade400 : Colors.grey.shade700,
-                  decoration: isDeleted ? TextDecoration.lineThrough : null)),
-          Text(
-              isInbound
-                  ? '${o.partnerName}  |  重量：${d.totalQuantity} kg'
-                  : '${o.partnerName}  |  ¥${d.totalAmount.toStringAsFixed(2)}',
-              style: TextStyle(
-                  fontSize: 12,
-                  color: isDeleted ? Colors.grey.shade400 : Colors.teal)),
-        ]),
-        trailing: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-                color: (o.syncStatus == SyncStatus.synced
-                        ? Colors.green
-                        : Colors.orange)
-                    .withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: o.syncStatus == SyncStatus.synced
-                        ? Colors.green
-                        : Colors.orange,
-                    width: 1.5)),
-            child: Text(o.syncStatus == SyncStatus.synced ? '已同步' : '未同步',
-                style: TextStyle(
-                    color: o.syncStatus == SyncStatus.synced
-                        ? Colors.green
-                        : Colors.orange,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold))),
+                      fontWeight: FontWeight.bold))),
+        ),
       ),
     );
   }

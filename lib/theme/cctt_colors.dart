@@ -10,10 +10,13 @@ abstract final class CcttColors {
   // ---- 品牌 ----
   /// 品牌主色（装饰用途，禁止小文字）
   static const Color brand = Color(0xFFC4724F);
+
   /// 主行动色（按钮背景/强调文字，白字 5.01:1）
   static const Color brandDeep = Color(0xFFA85A3A);
+
   /// 发光/渐变亮色
   static const Color brandGlow = Color(0xFFD4896B);
+
   /// 品牌浅底（大面积容器背景）
   static const Color brandLight = Color(0xFFF5E6DC);
 
@@ -30,14 +33,19 @@ abstract final class CcttColors {
   // ---- 中性 ----
   /// 正文色（深栗色，白底 15.9:1，户外日光可读）
   static const Color ink = Color(0xFF2D1F14);
+
   /// 暖白背景
   static const Color surface = Color(0xFFFFFDFB);
   static const Color surfaceVariant = Color(0xFFEFE6DE);
   static const Color onSurfaceVariant = Color(0xFF58493C);
   static const Color outline = Color(0xFFA19288);
   static const Color outlineVariant = Color(0xFFD4C7BC);
+
   /// 卡片层级背景
+  static const Color surfaceContainerLowest = Color(0xFFFFFFFF);
+  static const Color surfaceContainerLow = Color(0xFFFBF7F3);
   static const Color surfaceContainer = Color(0xFFF7EFE8);
+  static const Color surfaceContainerHigh = Color(0xFFF2E8DF);
 
   // ---- 容器内文字（on*Container，各自 ≥4.5:1）----
   static const Color onPrimaryContainerInk = Color(0xFF9E5537);
