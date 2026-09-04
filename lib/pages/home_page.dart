@@ -887,15 +887,6 @@ class _HomePageState extends State<HomePage> {
         child: ListTile(
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => OrderDetailPage(orderId: o.id))),
-          leading: CircleAvatar(
-            backgroundColor: syncColor.withValues(alpha: 0.12),
-            child: Icon(
-              o.syncStatus == SyncStatus.synced
-                  ? Icons.cloud_done_outlined
-                  : Icons.cloud_sync_outlined,
-              color: syncColor,
-            ),
-          ),
           title: Row(children: [
             Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

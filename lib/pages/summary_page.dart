@@ -13,6 +13,8 @@ class SummaryPage extends StatefulWidget {
   State<SummaryPage> createState() => _SummaryPageState();
 }
 
+enum _SummaryViewMode { dashboard, details }
+
 class _SummaryPageState extends State<SummaryPage> {
   final _weightFormat = NumberFormat('#,##0.0#');
   final _amountFormat = NumberFormat('#,##0.00');
@@ -22,6 +24,7 @@ class _SummaryPageState extends State<SummaryPage> {
   bool _isGenerating = false;
   bool _isUpdatingDemoData = false;
   String? _errorMessage;
+  _SummaryViewMode _viewMode = _SummaryViewMode.dashboard;
 
   @override
   void initState() {
@@ -153,10 +156,397 @@ class _SummaryPageState extends State<SummaryPage> {
             ],
             if (_report != null) ...[
               const SizedBox(height: 12),
-              _buildReport(_report!),
+              _buildViewModeSelector(),
+              const SizedBox(height: 12),
+              _viewMode == _SummaryViewMode.dashboard
+                  ? _buildDashboard(_report!)
+                  : _buildReport(_report!),
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildViewModeSelector() {
+    return Align(
+      alignment: Alignment.center,
+      child: SegmentedButton<_SummaryViewMode>(
+        segments: const [
+          ButtonSegment(
+            value: _SummaryViewMode.dashboard,
+            icon: Icon(Icons.space_dashboard_outlined, size: 18),
+            label: Text('看板'),
+          ),
+          ButtonSegment(
+            value: _SummaryViewMode.details,
+            icon: Icon(Icons.view_list_outlined, size: 18),
+            label: Text('明细'),
+          ),
+        ],
+        selected: {_viewMode},
+        showSelectedIcon: false,
+        onSelectionChanged: (selection) {
+          setState(() => _viewMode = selection.first);
+        },
+      ),
+    );
+  }
+
+  Widget _buildDashboard(SummaryReport report) {
+    final brand =
+        Theme.of(context).extension<CcttBrandColors>() ?? CcttBrandColors.light;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          _isFullYear(report)
+              ? '${report.startDate.year} 年经营看板'
+              : '${_dateText(report.startDate)} 至 ${_dateText(report.endDate)}',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.insights_outlined, color: brand.brandDeep),
+                    const SizedBox(width: 8),
+                    Text(
+                      '本期业务概览',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _buildDashboardMetric(
+                        label: '出货',
+                        totals: report.outbound,
+                        color: brand.redDeep,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildDashboardMetric(
+                        label: '入库',
+                        totals: report.inbound,
+                        color: brand.greenDeep,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildDashboardMetric(
+                        label: '进货',
+                        totals: report.supply,
+                        color: brand.blueDeep,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _buildWeightComparison(report, brand),
+        const SizedBox(height: 14),
+        _buildCategoryRanking(report.inboundCategories, brand.greenDeep),
+        const SizedBox(height: 14),
+        _buildPartnerRanking(report.supplyPartners, brand.blueDeep),
+      ],
+    );
+  }
+
+  Widget _buildDashboardMetric({
+    required String label,
+    required SummaryTotals totals,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 8),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              _weight(totals.totalWeight),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              _amount(totals.totalAmount),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${totals.orderCount} 单',
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeightComparison(
+    SummaryReport report,
+    CcttBrandColors brand,
+  ) {
+    final maximumWeight = [
+      report.outbound.totalWeight,
+      report.inbound.totalWeight,
+      report.supply.totalWeight,
+    ].fold<double>(0, (current, value) => value > current ? value : current);
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('重量对比', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              '以本期最高业务量为基准',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            _buildWeightBar(
+              label: '出货',
+              weight: report.outbound.totalWeight,
+              maximumWeight: maximumWeight,
+              color: brand.redDeep,
+            ),
+            const SizedBox(height: 14),
+            _buildWeightBar(
+              label: '入库',
+              weight: report.inbound.totalWeight,
+              maximumWeight: maximumWeight,
+              color: brand.greenDeep,
+            ),
+            const SizedBox(height: 14),
+            _buildWeightBar(
+              label: '进货',
+              weight: report.supply.totalWeight,
+              maximumWeight: maximumWeight,
+              color: brand.blueDeep,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWeightBar({
+    required String label,
+    required double weight,
+    required double maximumWeight,
+    required Color color,
+  }) {
+    final progress = maximumWeight == 0 ? 0.0 : weight / maximumWeight;
+    return Column(
+      children: [
+        Row(
+          children: [
+            SizedBox(
+              width: 38,
+              child: Text(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 9,
+                  backgroundColor: color.withValues(alpha: 0.10),
+                  color: color,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 82,
+              child: Text(
+                _weight(weight),
+                textAlign: TextAlign.right,
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCategoryRanking(
+    List<CategorySummary> categories,
+    Color color,
+  ) {
+    final topCategories = categories.take(3).toList();
+    return _buildRankingCard(
+      title: '入库品类 Top 3',
+      subtitle: '按重量排列',
+      icon: Icons.category_outlined,
+      color: color,
+      emptyText: '本期暂无入库品类数据',
+      children: [
+        for (var index = 0; index < topCategories.length; index++)
+          _buildRankingRow(
+            rank: index + 1,
+            label: topCategories[index].name,
+            weight: topCategories[index].totalWeight,
+            amount: topCategories[index].amount,
+            color: color,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPartnerRanking(
+    List<PartnerSummary> partners,
+    Color color,
+  ) {
+    final topPartners = [...partners]
+      ..sort((a, b) => b.totals.totalWeight.compareTo(a.totals.totalWeight));
+    return _buildRankingCard(
+      title: '进货客户 Top 3',
+      subtitle: '按重量排列',
+      icon: Icons.groups_2_outlined,
+      color: color,
+      emptyText: '本期暂无进货客户数据',
+      children: [
+        for (var index = 0; index < topPartners.length && index < 3; index++)
+          _buildRankingRow(
+            rank: index + 1,
+            label: topPartners[index].partnerName,
+            weight: topPartners[index].totals.totalWeight,
+            amount: topPartners[index].totals.totalAmount,
+            color: color,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildRankingCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required String emptyText,
+    required List<Widget> children,
+  }) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionHeader(title, subtitle, icon, color),
+            const SizedBox(height: 10),
+            if (children.isEmpty)
+              Text(
+                emptyText,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              )
+            else
+              ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRankingRow({
+    required int rank,
+    required String label,
+    required double weight,
+    required double amount,
+    required Color color,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '$rank',
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(_weight(weight)),
+              Text(
+                _amount(amount),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
